@@ -1,0 +1,22 @@
+[package]
+name = "media-box"
+version = "0.1.0"
+edition = "2024"
+description = "基于 VMAF 目标分数的 SVT-AV1 批量压缩工具"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["cargo", "derive"] }
+crossterm = "0"
+ctrlc = "3"
+thiserror = "2"
+
+[lints.clippy]
+complexity = "deny"
+perf = "deny"
+style = "deny"
+
+[profile.release]
+strip = true
+lto = true
