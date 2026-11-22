@@ -140,3 +140,66 @@ impl fmt::Display for Resolution {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_known_and_custom_resolutions() {
+        assert_eq!("1920x1080".parse::<Resolution>().unwrap(), Resolution::Fhd);
+        // 大写 X 与乘号分隔符
+        assert_eq!("1280X720".parse::<Resolution>().unwrap(), Resolution::Hd);
+        assert_eq!("3840×2160".parse::<Resolution>().unwrap(), Resolution::Uhd);
+        // 前后空白被忽略
+        assert_eq!(
+            "  720x1280 ".parse::<Resolution>().unwrap(),
+            Resolution::Vhd
+        );
+        // 非标准分辨率保留精确宽高
+        assert_eq!(
+            "1000x2000".parse::<Resolution>().unwrap(),
+            Resolution::Arbitrary {
+                width: 1000,
+                height: 2000
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_resolutions_with_typed_errors() {
+        assert_eq!(
+            "1920".parse::<Resolution>().unwrap_err(),
+            ResolutionError::NoDelimiterX
+        );
+        assert_eq!(
+            "x1080".parse::<Resolution>().unwrap_err(),
+            ResolutionError::MissingWidth
+        );
+        assert_eq!(
+            "1920x".parse::<Resolution>().unwrap_err(),
+            ResolutionError::MissingHeight
+        );
+        assert_eq!(
+            "12a0x1080".parse::<Resolution>().unwrap_err(),
+            ResolutionError::Parse("12a0".to_owned())
+        );
+        // u16 溢出按解析失败处理
+        assert_eq!(
+            "70000x1080".parse::<Resolution>().unwrap_err(),
+            ResolutionError::Parse("70000".to_owned())
+        );
+        // 零尺寸非法
+        assert_eq!(
+            "0x1080".parse::<Resolution>().unwrap_err(),
+            ResolutionError::Zero
+        );
+    }
+
+    #[test]
+    fn display_round_trips_through_parse() {
+        for text in ["3840x2160", "1080x1920", "1000x37"] {
+            assert_eq!(text.parse::<Resolution>().unwrap().to_string(), text);
+        }
+    }
+}

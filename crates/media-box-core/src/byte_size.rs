@@ -32,3 +32,24 @@ impl fmt::Display for ByteSize {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renders_human_readable_units() {
+        assert_eq!(ByteSize::b(0).to_string(), "0 B");
+        assert_eq!(ByteSize::b(1023).to_string(), "1023 B");
+        // 单位切换边界
+        assert_eq!(ByteSize::b(1024).to_string(), "1.00 KiB");
+        assert_eq!(ByteSize::b(1_048_575).to_string(), "1024.00 KiB");
+        assert_eq!(ByteSize::b(1_048_576).to_string(), "1.00 MiB");
+        assert_eq!(ByteSize::b(1_073_741_824).to_string(), "1.00 GiB");
+        // 超出 TiB 不再升单位
+        assert_eq!(
+            ByteSize::b(1_125_899_906_842_624).to_string(),
+            "1024.00 TiB"
+        );
+    }
+}

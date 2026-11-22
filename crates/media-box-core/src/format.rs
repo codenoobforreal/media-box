@@ -49,3 +49,43 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
 
     (year, month, day)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_duration_as_dd_hh_mm_ss() {
+        assert_eq!(format_duration_fixed(Duration::from_secs(0)), "00:00:00:00");
+        // 1h 2m 5s
+        assert_eq!(
+            format_duration_fixed(Duration::from_secs(3_725)),
+            "00:01:02:05"
+        );
+        // 1d 1h
+        assert_eq!(
+            format_duration_fixed(Duration::from_secs(90_000)),
+            "01:01:00:00"
+        );
+        // 亚秒被丢弃
+        assert_eq!(
+            format_duration_fixed(Duration::from_millis(1_500)),
+            "00:00:00:01"
+        );
+    }
+
+    #[test]
+    fn formats_unix_timestamp_across_calendar_boundaries() {
+        // 纪元：1970-01-01 00:00:00 UTC
+        assert_eq!(format_unix_timestamp_compact(0), "700101000000");
+
+        // 闰年 2 月 29 日：2000-02-29 00:00:00 UTC
+        assert_eq!(format_unix_timestamp_compact(951_782_400), "000229000000");
+
+        // 年末最后一天：2024-12-31 23:59:59 UTC
+        assert_eq!(format_unix_timestamp_compact(1_735_689_599), "241231235959");
+
+        // 世纪年非闰年（2100 不能被 400 整除）：2100-03-01 00:00:00 UTC，两位年份为 00
+        assert_eq!(format_unix_timestamp_compact(4_107_542_400), "000301000000");
+    }
+}

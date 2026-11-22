@@ -159,3 +159,97 @@ impl_from_str_via_new!(
     FrameRatePerSecond,
     EncoderPreset
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_out_of_range_and_off_grid_values() {
+        // CRF：范围 + 0.25 步进
+        assert_eq!(
+            ConstantRateFactor::new(0.5).unwrap_err(),
+            ValueError::OutOfRange {
+                value: 0.5,
+                min: 1.0,
+                max: 70.0,
+                what: "CRF 值",
+            }
+        );
+        assert_eq!(
+            ConstantRateFactor::new(18.1).unwrap_err(),
+            ValueError::InvalidCrfStep { value: 18.1 }
+        );
+        assert!(ConstantRateFactor::new(1.0).is_ok());
+        assert!(ConstantRateFactor::new(70.0).is_ok());
+        assert!(ConstantRateFactor::new(18.25).is_ok());
+
+        // preset：0..=13
+        assert_eq!(
+            EncoderPreset::new(14).unwrap_err(),
+            ValueError::OutOfRange {
+                value: 14.0,
+                min: 0.0,
+                max: 13.0,
+                what: "编码 preset",
+            }
+        );
+        assert!(EncoderPreset::new(13).is_ok());
+
+        // film-grain：0..=50
+        assert!(FilmGrain::new(51).is_err());
+        assert!(FilmGrain::new(50).is_ok());
+
+        // VMAF：1..=100
+        assert!(VmafScore::new(0.9).is_err());
+        assert!(VmafScore::new(100.5).is_err());
+        assert!(VmafScore::new(100.0).is_ok());
+
+        // 帧率：1..=120
+        assert!(FrameRatePerSecond::new(0.9).is_err());
+        assert!(FrameRatePerSecond::new(120.5).is_err());
+        assert!(FrameRatePerSecond::new(120.0).is_ok());
+    }
+
+    #[test]
+    fn from_str_reports_typed_parse_errors() {
+        // 数值非法走类型化错误，不再暴露 anyhow
+        assert!(matches!(
+            "abc".parse::<VmafScore>().unwrap_err(),
+            ValueError::ParseFloat(_)
+        ));
+        assert!(matches!(
+            "x".parse::<EncoderPreset>().unwrap_err(),
+            ValueError::ParseInt(_)
+        ));
+        assert_eq!(
+            "18.1".parse::<ConstantRateFactor>().unwrap_err(),
+            ValueError::InvalidCrfStep { value: 18.1 }
+        );
+
+        // 合法解析往返
+        assert_eq!(
+            "18.25".parse::<ConstantRateFactor>().unwrap().as_f64(),
+            18.25
+        );
+    }
+
+    #[test]
+    fn error_display_is_user_facing_contract() {
+        // 这段文案会直接出现在 CLI 报错里，改文案必须是有意行为
+        assert_eq!(
+            ValueError::OutOfRange {
+                value: 200.0,
+                min: 1.0,
+                max: 100.0,
+                what: "VMAF 分数",
+            }
+            .to_string(),
+            "VMAF 分数 200 超出范围，必须在 1 到 100 之间。"
+        );
+        assert_eq!(
+            ValueError::InvalidCrfStep { value: 18.1 }.to_string(),
+            "CRF 值 18.1 无效，必须是 0.25 的整数倍。"
+        );
+    }
+}
