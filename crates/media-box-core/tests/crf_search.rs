@@ -3,11 +3,11 @@
 //! 刻意不约束轮次、候选顺序、标定公式——那些是实现细节，调整算法不应该改测试。
 
 use anyhow::Result;
-use media_box::crf_search::{CrfSearcher, SampleMeasurer, SearchJournal};
-use media_box::interrupter::Cancelled;
-use media_box::resolution::Resolution;
-use media_box::value::{ConstantRateFactor, VmafScore};
-use media_box::vmaf::VmafMeasureMode;
+use media_box_core::crf_search::{CrfSearcher, SampleMeasurer, SearchJournal};
+use media_box_core::interrupter::Cancelled;
+use media_box_core::resolution::Resolution;
+use media_box_core::value::{ConstantRateFactor, VmafScore};
+use media_box_core::vmaf::VmafMeasureMode;
 
 /// 合成曲线：`S(c) = 100 - slope·(c-10)`，`F(c) = S(c) - gap(c)`。
 struct Curve {

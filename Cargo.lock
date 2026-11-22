@@ -281,6 +281,14 @@ name = "media-box"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "media-box-core",
+]
+
+[[package]]
+name = "media-box-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "clap",
  "crossterm",
  "ctrlc",

@@ -1,6 +1,6 @@
 //! `-d/--depth` 的扫描行为：用真实临时目录验证"哪些文件会被处理"，
 
-use media_box::media_scan::collect_videos;
+use media_box_core::media_scan::collect_videos;
 use std::fs;
 use std::path::PathBuf;
 

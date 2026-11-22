@@ -1,6 +1,6 @@
-use media_box::cli;
-use media_box::compressor::Compressor;
-use media_box::interrupter;
+use media_box_core::cli;
+use media_box_core::compressor::Compressor;
+use media_box_core::interrupter;
 
 fn main() -> anyhow::Result<()> {
     let args = cli::parse();

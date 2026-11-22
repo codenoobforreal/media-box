@@ -181,7 +181,7 @@ cargo fmt --check
 
 ### CRF 搜索的数学
 
-> 代码：`src/crf_search.rs`。本节解释「为什么这样搜」，以及每个常数背后的取舍。
+> 代码：`crates/media-box-core/src/crf_search.rs`。本节解释「为什么这样搜」，以及每个常数背后的取舍。
 
 #### 1. 问题与两个口径
 

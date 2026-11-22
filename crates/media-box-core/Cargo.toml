@@ -1,0 +1,16 @@
+[package]
+name = "media-box-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "media-box 核心库：媒体扫描、VMAF 目标搜索与 SVT-AV1 编码"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+crossterm.workspace = true
+ctrlc.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
