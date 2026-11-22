@@ -49,30 +49,80 @@ impl<'a> FilmGrainCalculator<'a> {
             }
         }
 
-        if series.is_empty() {
+        let Some(median_of_means) = representative_mean(&series) else {
             self.reporter
                 .warning("颗粒分析无有效样本，film-grain 退回默认值 8".to_owned());
-            return Ok(FilmGrain::default());
-        }
-
-        let high_confidence: Vec<&YdifValueSeries> = series
-            .iter()
-            .filter(|values| values.confidence() == Confidence::High)
-            .collect();
-        let minimum_required = series.len().div_ceil(2).max(1);
-
-        let chosen: Vec<&YdifValueSeries> = if high_confidence.len() >= minimum_required {
-            high_confidence
-        } else {
-            series.iter().collect()
-        };
-
-        let mut means: Vec<f64> = chosen.iter().map(|values| values.mean()).collect();
-
-        let Some(median_of_means) = f64_median(&mut means) else {
             return Ok(FilmGrain::default());
         };
 
         Ok(FilmGrain::new(film_grain_strength(median_of_means))?)
+    }
+}
+
+/// 从各样本的 YDIF 序列中选出代表均值：高置信样本不少于一半时只用高置信组，
+/// 否则全部纳入（低置信样本聊胜于无）；返回所选均值的中位数，空输入返回 `None`。
+///
+/// 纯函数：只依赖传入序列，不触碰 ffmpeg，选片策略可直接测试。
+pub fn representative_mean(series: &[YdifValueSeries]) -> Option<f64> {
+    let high_confidence: Vec<&YdifValueSeries> = series
+        .iter()
+        .filter(|values| values.confidence() == Confidence::High)
+        .collect();
+    let minimum_required = series.len().div_ceil(2).max(1);
+
+    let chosen: Vec<&YdifValueSeries> = if high_confidence.len() >= minimum_required {
+        high_confidence
+    } else {
+        series.iter().collect()
+    };
+
+    let mut means: Vec<f64> = chosen.iter().map(|values| values.mean()).collect();
+    f64_median(&mut means)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn constant(value: f64) -> YdifValueSeries {
+        // 恒定序列 CV=0，置信度必为 High。
+        YdifValueSeries::from_values(vec![value; 8])
+    }
+
+    fn noisy(pairs: usize) -> YdifValueSeries {
+        // 1/40 交替：CV 远超阈值，置信度必为 Low（见 ydif_stats 测试）。
+        let mut values = Vec::with_capacity(pairs * 2);
+        for _ in 0..pairs {
+            values.push(1.0);
+            values.push(40.0);
+        }
+        YdifValueSeries::from_values(values)
+    }
+
+    #[test]
+    fn empty_series_has_no_representative() {
+        assert_eq!(representative_mean(&[]), None);
+    }
+
+    #[test]
+    fn uses_only_high_confidence_when_it_reaches_half() {
+        // 2 高 1 低：高置信恰过半 → 低置信均值 20.5 不得进入中位数。
+        let series = [constant(2.0), constant(6.0), noisy(2)];
+        assert_eq!(representative_mean(&series), Some(4.0));
+    }
+
+    #[test]
+    fn half_is_enough_even_with_a_single_high_series() {
+        // 1 高 1 低：过半阈值 div_ceil(2)=1，只用高置信。
+        let series = [constant(2.0), noisy(2)];
+        assert_eq!(representative_mean(&series), Some(2.0));
+    }
+
+    #[test]
+    fn falls_back_to_all_series_when_high_confidence_is_minority() {
+        // 1 高 2 低：高置信不足一半 → 全部纳入，均值 [5.0, 20.5, 20.5] 中位数 20.5；
+        // 若误只用高置信会得到 5.0。
+        let series = [constant(5.0), noisy(2), noisy(1)];
+        assert_eq!(representative_mean(&series), Some(20.5));
     }
 }
