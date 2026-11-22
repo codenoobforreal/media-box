@@ -5,12 +5,9 @@ edition.workspace = true
 license.workspace = true
 description = "基于 VMAF 目标分数的 SVT-AV1 批量压缩工具"
 
-[[bin]]
-name = "media-box"
-path = "src/main.rs"
-
 [dependencies]
 anyhow.workspace = true
+clap.workspace = true
 media-box-core.workspace = true
 
 [lints]

@@ -1,18 +1,9 @@
 use anyhow::{Result, bail};
-use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
 
-/// 朝向枚举
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub enum Orientation {
-    /// 横屏
-    Landscape,
-    /// 竖屏
-    Portrait,
-}
-
 /// 分辨率枚举，包含常见标准分辨率及任意自定义分辨率。命名约定：`V` 前缀表示竖屏（Vertical）版本
+#[non_exhaustive]
 #[derive(Debug, PartialEq, Clone, Copy, Default, Eq, PartialOrd, Ord)]
 pub enum Resolution {
     /// 3840x2160 (4K UHD 横屏)
@@ -131,19 +122,6 @@ impl Resolution {
             Self::Vhd => 1_280,
             Self::Arbitrary { width: _, height } => height,
         }
-    }
-
-    /// 判断视频朝向（横屏或竖屏）,当宽高相等时视为横屏（Landscape）
-    pub fn orientation(self) -> Orientation {
-        match self.width().cmp(&self.height()) {
-            Ordering::Greater | Ordering::Equal => Orientation::Landscape,
-            Ordering::Less => Orientation::Portrait,
-        }
-    }
-
-    /// 获取宽高中的较大值，用作缩放时的主维度
-    pub fn primary_dimension(self) -> u16 {
-        self.width().max(self.height())
     }
 }
 

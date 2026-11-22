@@ -1,9 +1,10 @@
-use media_box_core::cli;
-use media_box_core::compressor::Compressor;
+mod cli;
+
+use media_box_core::compressor::{CompressOptions, Compressor};
 use media_box_core::interrupter;
 
 fn main() -> anyhow::Result<()> {
-    let args = cli::parse();
+    let options: CompressOptions = cli::parse().into();
     let canceller = interrupter::install()?;
-    Compressor::new(args).run(&canceller)
+    Compressor::new(options).run(&canceller)
 }

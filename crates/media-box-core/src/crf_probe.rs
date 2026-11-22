@@ -12,7 +12,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub struct ProbeContext<'a> {
+/// 构造 ProbeContext 的入参集合，避免构造函数参数过多。
+pub struct ProbeContextParams<'a> {
     pub input: &'a Path,
     pub base_output: &'a Path,
     pub settings: BitrateReduceSettings,
@@ -21,6 +22,43 @@ pub struct ProbeContext<'a> {
     pub samples: &'a [SceneSample],
     pub canceller: &'a Canceller,
     pub reporter: &'a Reporter,
+}
+
+pub struct ProbeContext<'a> {
+    input: &'a Path,
+    base_output: &'a Path,
+    settings: BitrateReduceSettings,
+    preset: EncoderPreset,
+    film_grain: FilmGrain,
+    samples: &'a [SceneSample],
+    canceller: &'a Canceller,
+    reporter: &'a Reporter,
+}
+
+impl<'a> ProbeContext<'a> {
+    pub fn new(params: ProbeContextParams<'a>) -> Self {
+        let ProbeContextParams {
+            input,
+            base_output,
+            settings,
+            preset,
+            film_grain,
+            samples,
+            canceller,
+            reporter,
+        } = params;
+
+        Self {
+            input,
+            base_output,
+            settings,
+            preset,
+            film_grain,
+            samples,
+            canceller,
+            reporter,
+        }
+    }
 }
 
 pub struct SampleProbe<'a> {
@@ -89,7 +127,7 @@ impl<'a> SampleProbe<'a> {
         for (index, sample) in self.context.samples.iter().enumerate() {
             self.context.canceller.check()?;
 
-            let position_seconds = sample.start.as_secs();
+            let position_seconds = sample.start().as_secs();
             let distorted = TempSampleFile::new(self.temp_output_path(crf, index));
 
             self.context.reporter.stage_detail(
@@ -147,11 +185,11 @@ impl<'a> SampleProbe<'a> {
         command
             .args(["-hide_banner", "-v", "error", "-an", "-sn", "-dn"])
             .arg("-ss")
-            .arg(sample.start.as_secs_f64().to_string())
+            .arg(sample.start().as_secs_f64().to_string())
             .arg("-i")
             .arg(self.context.input)
             .arg("-t")
-            .arg(sample.duration.as_secs_f64().to_string());
+            .arg(sample.duration().as_secs_f64().to_string());
 
         Av1EncodeArgs::new(self.context.preset, crf, self.context.film_grain).apply(&mut command);
 
@@ -188,11 +226,11 @@ impl<'a> SampleProbe<'a> {
             ])
             .arg(distorted)
             .arg("-ss")
-            .arg(sample.start.as_secs_f64().to_string())
+            .arg(sample.start().as_secs_f64().to_string())
             .arg("-i")
             .arg(self.context.input)
             .arg("-t")
-            .arg(sample.duration.as_secs_f64().to_string())
+            .arg(sample.duration().as_secs_f64().to_string())
             .arg("-lavfi")
             .arg(self.filter(mode))
             .args(["-f", "null", "-"]);

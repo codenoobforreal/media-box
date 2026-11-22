@@ -33,8 +33,8 @@ impl<'a> FilmGrainCalculator<'a> {
         for sample in self.scene_samples {
             match YdifProbe::new(
                 self.input_video_path.to_path_buf(),
-                sample.start,
-                sample.duration,
+                sample.start(),
+                sample.duration(),
             )
             .run(canceller)
             {
@@ -73,6 +73,6 @@ impl<'a> FilmGrainCalculator<'a> {
             return Ok(FilmGrain::default());
         };
 
-        FilmGrain::new(film_grain_strength(median_of_means))
+        Ok(FilmGrain::new(film_grain_strength(median_of_means))?)
     }
 }

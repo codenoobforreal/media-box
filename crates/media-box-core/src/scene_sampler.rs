@@ -17,8 +17,22 @@ impl SceneTimeSpan {
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct SceneSample {
-    pub start: Duration,
-    pub duration: Duration,
+    start: Duration,
+    duration: Duration,
+}
+
+impl SceneSample {
+    pub fn new(start: Duration, duration: Duration) -> Self {
+        Self { start, duration }
+    }
+
+    pub fn start(self) -> Duration {
+        self.start
+    }
+
+    pub fn duration(self) -> Duration {
+        self.duration
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -114,10 +128,7 @@ impl SceneSampler {
         let sample_duration = self.maximum_sample_duration.min(total_video_duration);
         let start_time = total_video_duration.saturating_sub(sample_duration) / 2;
 
-        vec![SceneSample {
-            start: start_time,
-            duration: sample_duration,
-        }]
+        vec![SceneSample::new(start_time, sample_duration)]
     }
 
     fn multi_fallback_samples(&self, total_video_duration: Duration) -> Vec<SceneSample> {
@@ -133,10 +144,8 @@ impl SceneSampler {
                     .min(maximum_allowed_start_time);
                 let remaining = total_video_duration.saturating_sub(start);
 
-                (!remaining.is_zero()).then(|| SceneSample {
-                    start,
-                    duration: self.maximum_sample_duration.min(remaining),
-                })
+                (!remaining.is_zero())
+                    .then(|| SceneSample::new(start, self.maximum_sample_duration.min(remaining)))
             })
             .collect()
     }
@@ -157,10 +166,11 @@ impl SceneSampler {
             let previous_record = window[0];
             let current_record = window[1];
 
-            if current_record.scene_change_time_seconds - previous_record.scene_change_time_seconds
+            if current_record.scene_change_time_seconds()
+                - previous_record.scene_change_time_seconds()
                 < self.scene_cut_merge_gap_seconds
             {
-                if current_record.scene_change_score > current_best_record.scene_change_score {
+                if current_record.scene_change_score() > current_best_record.scene_change_score() {
                     current_best_record = current_record;
                 }
             } else {
@@ -178,7 +188,7 @@ impl SceneSampler {
         total_video_duration: Duration,
     ) -> Vec<SceneTimeSpan> {
         let cut_time = |record: &SceneCutDetectionRecord| {
-            Duration::try_from_secs_f64(record.scene_change_time_seconds)
+            Duration::try_from_secs_f64(record.scene_change_time_seconds())
                 .unwrap_or(Duration::ZERO)
                 .min(total_video_duration)
         };
@@ -234,10 +244,10 @@ impl SceneSampler {
                 let scene_duration = time_span.duration();
                 let duration = self.maximum_sample_duration.min(scene_duration);
 
-                SceneSample {
-                    start: time_span.start_time + (scene_duration - duration) / 2,
+                SceneSample::new(
+                    time_span.start_time + (scene_duration - duration) / 2,
                     duration,
-                }
+                )
             })
             .collect()
     }
@@ -248,10 +258,7 @@ mod tests {
     use super::*;
 
     fn record(time: f64) -> SceneCutDetectionRecord {
-        SceneCutDetectionRecord {
-            scene_change_score: 0.5,
-            scene_change_time_seconds: time,
-        }
+        SceneCutDetectionRecord::new(0.5, time)
     }
 
     #[test]
@@ -262,7 +269,7 @@ mod tests {
         assert!(
             short
                 .iter()
-                .all(|sample| sample.start + sample.duration <= Duration::from_secs(5))
+                .all(|sample| sample.start() + sample.duration() <= Duration::from_secs(5))
         );
 
         // 切点晚于总时长（duration 被截断到整秒）：不能 panic，也不能越界。
@@ -271,7 +278,7 @@ mod tests {
         assert!(
             beyond
                 .iter()
-                .all(|sample| sample.start + sample.duration <= total)
+                .all(|sample| sample.start() + sample.duration() <= total)
         );
     }
 
@@ -286,15 +293,15 @@ mod tests {
         assert!(
             samples
                 .iter()
-                .all(|sample| sample.start + sample.duration <= total)
+                .all(|sample| sample.start() + sample.duration() <= total)
         );
         // 最长场景 [15, 40]（25s）取中点，样本 20s：15 + (25-20)/2 = 17.5s。
         // 首尾被 5% 排除的 [0,10]、[40,60] 不会产生样本，因此首样本必来自该场景。
         assert_eq!(
-            samples[0].start,
+            samples[0].start(),
             Duration::from_millis(17_500),
             "{samples:?}"
         );
-        assert_eq!(samples[0].duration, Duration::from_secs(20));
+        assert_eq!(samples[0].duration(), Duration::from_secs(20));
     }
 }

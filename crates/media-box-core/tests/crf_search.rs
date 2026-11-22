@@ -136,7 +136,7 @@ fn returns_best_quality_when_the_target_is_out_of_reach() {
         .search(&mut curve, &mut SilentJournal)
         .expect("不可达也应正常返回");
 
-    assert_eq!(result, range.low, "应退到最优画质");
+    assert_eq!(result, range.low(), "应退到最优画质");
     assert!(curve.full_spec(result) < 99.0);
 }
 
@@ -151,7 +151,7 @@ fn returns_max_compression_when_the_target_is_already_met() {
         .search(&mut curve, &mut SilentJournal)
         .expect("搜索不应失败");
 
-    assert_eq!(result, range.high, "应退到最高压缩率");
+    assert_eq!(result, range.high(), "应退到最高压缩率");
 }
 
 #[test]
@@ -181,10 +181,10 @@ fn stays_inside_the_suggested_range_and_grid() {
 
     for crf in &curve.calls {
         assert!(
-            (range.low..=range.high).contains(crf),
+            (range.low()..=range.high()).contains(crf),
             "测量越界：{crf:?} 不在 [{:?}, {:?}]",
-            range.low,
-            range.high
+            range.low(),
+            range.high()
         );
         assert!(
             (crf.as_f64() * 4.0).fract().abs() < 1e-9,
@@ -221,7 +221,7 @@ fn survives_measurement_failures() {
         .search(&mut curve, &mut SilentJournal)
         .expect("测量失败不应变成硬错误");
 
-    assert!((range.low..=range.high).contains(&result));
+    assert!((range.low()..=range.high()).contains(&result));
 }
 
 #[test]

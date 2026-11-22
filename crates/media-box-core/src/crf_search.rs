@@ -21,8 +21,22 @@ const MIN_SEARCH_SPAN: f64 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CrfRange {
-    pub low: ConstantRateFactor,
-    pub high: ConstantRateFactor,
+    low: ConstantRateFactor,
+    high: ConstantRateFactor,
+}
+
+impl CrfRange {
+    pub fn new(low: ConstantRateFactor, high: ConstantRateFactor) -> Self {
+        Self { low, high }
+    }
+
+    pub fn low(self) -> ConstantRateFactor {
+        self.low
+    }
+
+    pub fn high(self) -> ConstantRateFactor {
+        self.high
+    }
 }
 
 /// 按输出分辨率给出建议区间。
@@ -35,10 +49,10 @@ pub fn suggest_crf_range(resolution: Resolution) -> CrfRange {
         _ => (16.0, 40.0),
     };
 
-    CrfRange {
-        low: ConstantRateFactor::snapped_clamped(low),
-        high: ConstantRateFactor::snapped_clamped(high),
-    }
+    CrfRange::new(
+        ConstantRateFactor::snapped_clamped(low),
+        ConstantRateFactor::snapped_clamped(high),
+    )
 }
 
 pub trait SampleMeasurer {
@@ -167,18 +181,15 @@ impl CrfSearcher {
         Self {
             target_score,
             initial: range,
-            low: range.low,
-            high: range.high,
+            low: range.low(),
+            high: range.high(),
             measurements: Vec::new(),
             calibration: Calibration::default(),
         }
     }
 
     pub fn bounds(&self) -> CrfRange {
-        CrfRange {
-            low: self.low,
-            high: self.high,
-        }
+        CrfRange::new(self.low, self.high)
     }
 
     pub fn search(

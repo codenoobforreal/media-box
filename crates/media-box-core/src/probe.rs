@@ -10,10 +10,42 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SourceMeta {
-    pub resolution: Resolution,
-    pub fps: FrameRatePerSecond,
-    pub duration: Duration,
-    pub size: ByteSize,
+    resolution: Resolution,
+    fps: FrameRatePerSecond,
+    duration: Duration,
+    size: ByteSize,
+}
+
+impl SourceMeta {
+    pub fn new(
+        resolution: Resolution,
+        fps: FrameRatePerSecond,
+        duration: Duration,
+        size: ByteSize,
+    ) -> Self {
+        Self {
+            resolution,
+            fps,
+            duration,
+            size,
+        }
+    }
+
+    pub fn resolution(self) -> Resolution {
+        self.resolution
+    }
+
+    pub fn fps(self) -> FrameRatePerSecond {
+        self.fps
+    }
+
+    pub fn duration(self) -> Duration {
+        self.duration
+    }
+
+    pub fn size(self) -> ByteSize {
+        self.size
+    }
 }
 
 pub fn read_metadata(path: &Path, canceller: &Canceller) -> Result<SourceMeta> {
@@ -97,15 +129,14 @@ impl ProbeRaw {
         let size = self.size_bytes.ok_or_else(|| anyhow!("缺少字段 size"))?;
         let fps = self.fps()?;
 
-        Ok(SourceMeta {
-            resolution: Resolution::new(width, height)?,
-            fps: FrameRatePerSecond::from_probed(fps),
-            duration: self
-                .duration_secs
+        Ok(SourceMeta::new(
+            Resolution::new(width, height)?,
+            FrameRatePerSecond::from_probed(fps),
+            self.duration_secs
                 .and_then(|secs| Duration::try_from_secs_f64(secs).ok())
                 .unwrap_or(Duration::ZERO),
-            size: ByteSize::b(size),
-        })
+            ByteSize::b(size),
+        ))
     }
 
     fn fps(&self) -> Result<f64> {

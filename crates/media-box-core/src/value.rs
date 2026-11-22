@@ -1,23 +1,48 @@
-use anyhow::{Result, bail};
 use std::str::FromStr;
+
+/// 各数值 newtype 在构造与解析阶段产生的错误。
+///
+/// 作为库的公共错误类型，不向下游暴露 `anyhow::Error`；
+/// 需要 anyhow 的场景由 `From<ValueError> for anyhow::Error` 自动转换。
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ValueError {
+    #[error("{what} {value} 超出范围，必须在 {min} 到 {max} 之间。")]
+    OutOfRange {
+        value: f64,
+        min: f64,
+        max: f64,
+        what: &'static str,
+    },
+    #[error("CRF 值 {value} 无效，必须是 0.25 的整数倍。")]
+    InvalidCrfStep { value: f64 },
+    #[error("无法解析整数 {0}")]
+    ParseInt(#[from] std::num::ParseIntError),
+    #[error("无法解析数值 {0}")]
+    ParseFloat(#[from] std::num::ParseFloatError),
+}
 
 macro_rules! impl_from_str_via_new {
     ($($ty:ty),+ $(,)?) => {$(
         impl FromStr for $ty {
-            type Err = anyhow::Error;
+            type Err = ValueError;
 
-            fn from_str(text: &str) -> Result<Self> {
+            fn from_str(text: &str) -> Result<Self, ValueError> {
                 Self::new(text.parse()?)
             }
         }
     )+};
 }
 
-fn ensure_range(value: f64, min: f64, max: f64, what: &str) -> Result<()> {
+fn ensure_range(value: f64, min: f64, max: f64, what: &'static str) -> Result<(), ValueError> {
     if (min..=max).contains(&value) {
         Ok(())
     } else {
-        bail!("{what} {value} 超出范围，必须在 {min} 到 {max} 之间。")
+        Err(ValueError::OutOfRange {
+            value,
+            min,
+            max,
+            what,
+        })
     }
 }
 
@@ -27,12 +52,12 @@ pub struct ConstantRateFactor(u16);
 impl ConstantRateFactor {
     const STEPS_PER_UNIT: f64 = 4.0;
 
-    pub fn new(value: f64) -> Result<Self> {
+    pub fn new(value: f64) -> Result<Self, ValueError> {
         ensure_range(value, 1.0, 70.0, "CRF 值")?;
 
         let steps = value * Self::STEPS_PER_UNIT;
         if (steps - steps.round()).abs() > 1e-9 {
-            bail!("CRF 值 {value} 无效，必须是 0.25 的整数倍。");
+            return Err(ValueError::InvalidCrfStep { value });
         }
 
         Ok(Self(steps.round() as u16))
@@ -52,7 +77,7 @@ impl ConstantRateFactor {
 pub struct VmafScore(f64);
 
 impl VmafScore {
-    pub fn new(value: f64) -> Result<Self> {
+    pub fn new(value: f64) -> Result<Self, ValueError> {
         ensure_range(value, 1.0, 100.0, "VMAF 分数")?;
         Ok(Self(value))
     }
@@ -72,10 +97,8 @@ impl Default for VmafScore {
 pub struct FilmGrain(u8);
 
 impl FilmGrain {
-    pub fn new(value: u8) -> Result<Self> {
-        if value > 50 {
-            bail!("film-grain 强度 {value} 超出范围，必须在 0 到 50 之间。");
-        }
+    pub fn new(value: u8) -> Result<Self, ValueError> {
+        ensure_range(f64::from(value), 0.0, 50.0, "film-grain 强度")?;
         Ok(Self(value))
     }
 
@@ -94,7 +117,7 @@ impl Default for FilmGrain {
 pub struct FrameRatePerSecond(f64);
 
 impl FrameRatePerSecond {
-    pub fn new(value: f64) -> Result<Self> {
+    pub fn new(value: f64) -> Result<Self, ValueError> {
         ensure_range(value, 1.0, 120.0, "帧率")?;
         Ok(Self(value))
     }
@@ -113,10 +136,8 @@ impl FrameRatePerSecond {
 pub struct EncoderPreset(u8);
 
 impl EncoderPreset {
-    pub fn new(value: u8) -> Result<Self> {
-        if value > 13 {
-            bail!("编码 preset {value} 超出范围，必须在 0 到 13 之间。");
-        }
+    pub fn new(value: u8) -> Result<Self, ValueError> {
+        ensure_range(f64::from(value), 0.0, 13.0, "编码 preset")?;
         Ok(Self(value))
     }
 

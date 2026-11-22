@@ -32,7 +32,7 @@ impl Ui {
         let renderer = spawn_renderer(receiver, queue.to_vec());
 
         Self {
-            reporter: Reporter { sender },
+            reporter: Reporter::new(sender),
             renderer,
         }
     }

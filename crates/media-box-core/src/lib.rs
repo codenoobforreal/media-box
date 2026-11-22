@@ -1,5 +1,4 @@
 pub mod byte_size;
-pub mod cli;
 pub mod compressor;
 pub mod crf_probe;
 pub mod crf_search;
@@ -24,5 +23,4 @@ pub mod vmaf;
 pub mod ydif_probe;
 pub mod ydif_stats;
 
-pub use cli::CliArgs;
 pub use value::{ConstantRateFactor, EncoderPreset, FilmGrain, FrameRatePerSecond, VmafScore};

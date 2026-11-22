@@ -1,8 +1,10 @@
-use crate::resolution::Resolution;
-use crate::value::{EncoderPreset, FrameRatePerSecond, VmafScore};
 use clap::{Arg, ArgAction, ArgMatches, Command, command, value_parser};
+use media_box_core::compressor::CompressOptions;
+use media_box_core::resolution::Resolution;
+use media_box_core::value::{EncoderPreset, FrameRatePerSecond, VmafScore};
 use std::path::PathBuf;
 
+#[non_exhaustive]
 #[derive(Debug, PartialEq, Clone)]
 pub struct CliArgs {
     pub inputs: Vec<PathBuf>,
@@ -12,6 +14,20 @@ pub struct CliArgs {
     pub fps: Option<FrameRatePerSecond>,
     pub preset: EncoderPreset,
     pub vmaf_score: VmafScore,
+}
+
+impl From<CliArgs> for CompressOptions {
+    fn from(args: CliArgs) -> Self {
+        Self::new(
+            args.inputs,
+            args.resolution,
+            args.output_dir,
+            args.depth,
+            args.fps,
+            args.preset,
+            args.vmaf_score,
+        )
+    }
 }
 
 /// 顶层命令：`media-box <子命令>`。

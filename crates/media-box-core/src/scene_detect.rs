@@ -6,8 +6,25 @@ use std::process::Command;
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub struct SceneCutDetectionRecord {
-    pub scene_change_score: f64,
-    pub scene_change_time_seconds: f64,
+    scene_change_score: f64,
+    scene_change_time_seconds: f64,
+}
+
+impl SceneCutDetectionRecord {
+    pub fn new(scene_change_score: f64, scene_change_time_seconds: f64) -> Self {
+        Self {
+            scene_change_score,
+            scene_change_time_seconds,
+        }
+    }
+
+    pub fn scene_change_score(self) -> f64 {
+        self.scene_change_score
+    }
+
+    pub fn scene_change_time_seconds(self) -> f64 {
+        self.scene_change_time_seconds
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
@@ -50,10 +67,10 @@ impl SceneCutDetector {
 
 /// 解析形如 `[scdet @ ...] lavfi.scd.score: 12.3, lavfi.scd.time: 4.5` 的日志行。
 pub fn parse_scdet_log_line(log_line: &str) -> Option<SceneCutDetectionRecord> {
-    Some(SceneCutDetectionRecord {
-        scene_change_score: number_after(log_line, "lavfi.scd.score: ")?,
-        scene_change_time_seconds: number_after(log_line, "lavfi.scd.time: ")?,
-    })
+    Some(SceneCutDetectionRecord::new(
+        number_after(log_line, "lavfi.scd.score: ")?,
+        number_after(log_line, "lavfi.scd.time: ")?,
+    ))
 }
 
 fn number_after(log_line: &str, marker: &str) -> Option<f64> {
@@ -74,8 +91,8 @@ mod tests {
         let record =
             parse_scdet_log_line("[scdet @ 000001] lavfi.scd.score: 12.3, lavfi.scd.time: 4.56")
                 .unwrap();
-        assert!((record.scene_change_score - 12.3).abs() < 1e-9);
-        assert!((record.scene_change_time_seconds - 4.56).abs() < 1e-9);
+        assert!((record.scene_change_score() - 12.3).abs() < 1e-9);
+        assert!((record.scene_change_time_seconds() - 4.56).abs() < 1e-9);
         assert!(parse_scdet_log_line("frame= 10").is_none());
     }
 }

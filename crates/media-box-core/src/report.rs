@@ -120,10 +120,14 @@ pub enum Event {
 
 #[derive(Clone)]
 pub struct Reporter {
-    pub sender: Sender<Event>,
+    sender: Sender<Event>,
 }
 
 impl Reporter {
+    pub fn new(sender: Sender<Event>) -> Self {
+        Self { sender }
+    }
+
     pub fn job_started(&self, path: &Path) {
         self.send(Event::JobStarted(path.to_path_buf()));
     }
