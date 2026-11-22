@@ -73,7 +73,11 @@ mod tests {
 
     #[test]
     fn colliding_names_get_increasing_suffixes() {
-        let dir = std::env::temp_dir().join(format!("media-box-outpath-{}", std::process::id()));
+        // 副作用收敛在项目内（crate 根下的临时目录）：系统临时目录在
+        // DSH 工作区之外，工作区策略下创建目录会被沙箱拒绝。
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(".tmp-tests")
+            .join(format!("media-box-outpath-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
