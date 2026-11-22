@@ -2,7 +2,7 @@
 
 use media_box_core::media_scan::collect_videos;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 struct TempTree {
     root: PathBuf,
@@ -10,8 +10,11 @@ struct TempTree {
 
 impl TempTree {
     fn new(label: &str) -> Self {
-        let root =
-            std::env::temp_dir().join(format!("media-box-scan-{}-{label}", std::process::id()));
+        // 副作用收敛在项目内（crate 根下的临时目录）：系统临时目录在
+        // DSH 工作区之外，工作区策略下创建目录会被沙箱拒绝。
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(".tmp-tests")
+            .join(format!("media-box-scan-{}-{label}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
 
         for dir in ["", "sub", "sub/deep"] {
