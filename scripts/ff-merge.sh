@@ -23,9 +23,10 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 
 BASE_SHA="$(git rev-parse "$BASE")"
-if ! git merge-base --is-ancestor "$BASE_SHA" "$BRANCH"; then
+BRANCH_SHA="$(git rev-parse "$BRANCH")"
+if ! git merge-base --is-ancestor "$BASE_SHA" "$BRANCH_SHA"; then
   echo "FAIL: $BASE 不是 $BRANCH 的祖先 —— 会话期间主分支被改动过，无法 ff-only。" >&2
-  echo "     人工审查后普通合并，或在分支上 git rebase $BASE。" >&2
+  echo "     人工审查后普通合并，或在作业分支上 git revert 对应提交后重试。" >&2
   exit 5
 fi
 
@@ -36,9 +37,19 @@ echo
 git switch "$BASE"
 git merge --ff-only "$BRANCH"
 
-echo "== 聚合变更 =="
-git diff --stat "origin/$BASE...HEAD"
+echo "== 本次会话变更（合并前 base..合并后 HEAD）=="
+git diff --stat "$BASE_SHA..HEAD"
+echo
+echo "== 合并后校验 =="
+if [ "$(git rev-parse --abbrev-ref HEAD)" != "$BASE" ]; then
+  echo "WARN: 合并后不在 $BASE 分支上，请人工确认。" >&2
+fi
+if [ -n "$(git status --porcelain)" ]; then
+  echo "WARN: 合并后工作区仍有改动，请人工确认。" >&2
+  git status --short >&2
+fi
+
 echo
 echo "OK 已快进合并到 $BASE。分支 $BRANCH 保留（便于 git revert 定位）。"
 echo "本次会话未 push。由人决定：git push origin $BASE"
-echo "若结果不满意：git reset --hard origin/$BASE（本地会回到远端那份）"
+echo "若结果不满意：由人执行 git reset --hard origin/$BASE（本地会回到远端那份）"

@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# 开工前检查 + 建作业分支。用法： ./preflight.sh <repo-dir> [branch]
+# 开工前检查 + 建作业分支。用法：
+#   ./preflight.sh <repo-dir> [branch]        # 检查通过后建作业分支（RW 态）
+#   ./preflight.sh --check-only <repo-dir>   # 只做只读检查，不建分支、不写配置（降级态/预检）
 # 关键前提：远端 origin/<base> 必须与本地 HEAD 一致（远端是唯一恢复点）。
 set -euo pipefail
+
+CHECK_ONLY=0
+if [ "${1:-}" = "--check-only" ] || [ "${1:-}" = "-c" ]; then
+  CHECK_ONLY=1
+  shift
+fi
 
 REPO="${1:-.}"
 BRANCH="${2:-agent/run-$(date +%Y%m%d-%H%M)}"
@@ -37,6 +45,12 @@ if [ "$AHEAD" != "0" ] || [ "$BEHIND" != "0" ]; then
   echo "FAIL: 本地与 origin/$BASE 不同步（本地领先 $AHEAD，落后 $BEHIND）。" >&2
   echo "      远端此刻不等于你的工作状态，回滚会丢东西。先 push 或 pull 对齐。" >&2
   exit 10
+fi
+
+# 所有检查通过
+if [ "$CHECK_ONLY" = "1" ]; then
+  echo "OK   check-only: base=$BASE  remote-sync=0/0（未建分支、未改配置）"
+  exit 0
 fi
 
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
