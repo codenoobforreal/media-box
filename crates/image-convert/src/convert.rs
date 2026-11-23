@@ -1,11 +1,10 @@
+use crate::codecs;
 use crate::format::{IMAGE_EXTENSIONS, TargetFormat};
 use crate::output_path::output_path;
 use anyhow::{Context, Result};
 use image::codecs::avif::AvifEncoder;
 use image::codecs::jpeg::JpegEncoder;
-use image::{
-    DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder, ImageFormat, ImageReader,
-};
+use image::{DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder, ImageFormat};
 use media_box_core::media_scan::{ScannedFile, collect_files};
 use media_box_core::output_path::collision_free;
 use std::collections::HashSet;
@@ -84,6 +83,10 @@ fn collect_images(inputs: &[impl AsRef<Path>], depth: u8) -> Result<Vec<ScannedF
 
 /// 运行批量转换，返回逐文件结果（按源路径排序，保证输出稳定）。
 pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
+    if !options.format.can_write() {
+        anyhow::bail!("目标格式 {} 不能作为输出", options.format.extension());
+    }
+
     let images = collect_images(&options.inputs, options.depth)?;
     if images.is_empty() {
         return Ok(Vec::new());
@@ -235,12 +238,15 @@ fn resolve_target(
 
 /// 解码并编码单个文件，原子写盘，返回输出字节数。
 fn convert_one(source: &Path, target: &Path, options: &ConvertOptions) -> Result<u64> {
-    let image = ImageReader::open(source)
-        .with_context(|| format!("打开源图片 {}", source.display()))?
-        .decode()
-        .with_context(|| format!("解码源图片 {}", source.display()))?;
+    let image = codecs::decode_input(source)?;
 
-    let buffer = encode_to_buffer(&image, options.format.as_image(), options.quality)
+    let format = options.format.as_image().ok_or_else(|| {
+        anyhow::anyhow!(
+            "目标格式 {} 仅支持解码，不能作为输出",
+            options.format.extension()
+        )
+    })?;
+    let buffer = encode_to_buffer(&image, format, options.quality)
         .with_context(|| format!("编码图片 {}", source.display()))?;
 
     write_atomic(target, &buffer).with_context(|| format!("写入输出 {}", target.display()))
@@ -298,6 +304,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::ImageReader;
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -478,6 +485,106 @@ mod tests {
             .collect();
         assert!(targets.contains(&out.join("photo.webp").to_string_lossy().into_owned()));
         assert!(targets.contains(&out.join("photo-1.webp").to_string_lossy().into_owned()));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn decodes_hook_registered_wbmp_to_png() {
+        // 让测试进程注册扩展解码 hook（Once 幂等，main 里也调用同一函数）。
+        codecs::register_input_decoders();
+
+        let root = temp_dir("wbmp");
+        // 最小合法 WBMP（type 0）：1x1，行数据 1 字节。
+        fs::write(root.join("pixel.wbmp"), [0x00u8, 0x00, 0x01, 0x01, 0x80]).unwrap();
+
+        let mut opts = options(vec![root.join("pixel.wbmp")], Some(root.join("out")));
+        opts.format = "png".parse().unwrap();
+        let outcomes = run(opts).unwrap();
+
+        assert_eq!(outcomes.len(), 1, "应只有一个结果");
+        assert!(
+            matches!(outcomes[0], ConvertOutcome::Success { .. }),
+            "WBMP 解码应成功：{:?}",
+            outcomes[0]
+        );
+        let decoded = ImageReader::open(outcomes[0].target())
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(decoded.dimensions(), (1, 1));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn decodes_jxl_sample_generated_by_zune() {
+        // 让测试进程注册扩展解码 hook。
+        codecs::register_input_decoders();
+
+        // 用 zune-jpegxl 生成无损 JXL 样本（dev-dependency）。
+        let (width, height) = (4u32, 3u32);
+        let mut pixels = Vec::with_capacity((width * height * 3) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                pixels.extend_from_slice(&[(x * 60) as u8, (y * 80) as u8, 128]);
+            }
+        }
+        let encoder = zune_jpegxl::JxlSimpleEncoder::new(
+            &pixels,
+            zune_core::options::EncoderOptions::new(
+                width as usize,
+                height as usize,
+                zune_core::colorspace::ColorSpace::RGB,
+                zune_core::bit_depth::BitDepth::Eight,
+            ),
+        );
+        let mut encoded = Vec::new();
+        encoder.encode(&mut encoded).expect("JXL 样本编码失败");
+
+        let root = temp_dir("jxl");
+        let source = root.join("sample.jxl");
+        fs::write(&source, encoded).unwrap();
+
+        let mut opts = options(vec![source], Some(root.join("out")));
+        opts.format = "png".parse().unwrap();
+        let outcomes = run(opts).unwrap();
+
+        assert_eq!(outcomes.len(), 1);
+        assert!(
+            matches!(outcomes[0], ConvertOutcome::Success { .. }),
+            "JXL 解码应成功：{:?}",
+            outcomes[0]
+        );
+        let decoded = ImageReader::open(outcomes[0].target())
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(decoded.dimensions(), (width, height));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    #[ignore = "user-run: 需要真实 HEIC 样本（如 iPhone 照片）。把样本放到 crates/image-convert/tests/samples/photo.heic 后运行 cargo test -p image-convert -- --ignored"]
+    fn decodes_real_heic_sample() {
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples/photo.heic");
+        assert!(
+            sample.exists(),
+            "缺少样本文件 tests/samples/photo.heic，请先放入一张 HEIC 照片"
+        );
+
+        let root = temp_dir("heic");
+        let mut opts = options(vec![sample], Some(root.join("out")));
+        opts.format = "png".parse().unwrap();
+        let outcomes = run(opts).unwrap();
+
+        assert_eq!(outcomes.len(), 1);
+        assert!(
+            matches!(outcomes[0], ConvertOutcome::Success { .. }),
+            "HEIC 解码应成功：{:?}",
+            outcomes[0]
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

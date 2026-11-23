@@ -57,6 +57,7 @@ pub struct CliArgs {
     pub jobs: usize,
     pub overwrite: bool,
     pub dry_run: bool,
+    pub list_formats: bool,
 }
 
 impl From<CliArgs> for ConvertOptions {
@@ -98,7 +99,7 @@ pub fn command() -> Command {
                 .help("源图片路径，可以是文件或目录，可重复指定多个")
                 .value_parser(value_parser!(PathBuf))
                 .action(ArgAction::Append)
-                .required(true),
+                .required_unless_present("list_formats"),
         )
         .arg(
             Arg::new("output")
@@ -113,9 +114,15 @@ pub fn command() -> Command {
                 .short('f')
                 .long("format")
                 .value_name("FORMAT")
-                .help("目标格式：png/jpg/jpeg/webp/avif/gif/tif/tiff/bmp/ico/tga/pnm/qoi/hdr/exr/dds/ff")
+                .help("目标格式：png/jpg/webp/avif/gif/tif/bmp/ico/tga/pnm/qoi/hdr/exr/ff/dds；heic/jxl/jp2 等扩展格式仅支持解码，用 --list-formats 查看能力矩阵")
                 .value_parser(value_parser!(TargetFormat))
-                .required(true),
+                .required_unless_present("list_formats"),
+        )
+        .arg(
+            Arg::new("list_formats")
+                .long("list-formats")
+                .help("打印输入/输出格式能力矩阵后退出")
+                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new("quality")
@@ -173,9 +180,11 @@ impl CliArgs {
                 .map(|values| values.cloned().collect())
                 .unwrap_or_default(),
             output_dir: matches.get_one::<PathBuf>("output").cloned(),
-            format: *matches
+            // --list-formats 模式下 -f 可省略，此时该字段不参与任何转换。
+            format: matches
                 .get_one::<TargetFormat>("format")
-                .expect("--format 必填"),
+                .copied()
+                .unwrap_or_default(),
             quality: *matches
                 .get_one::<Quality>("quality")
                 .expect("--quality 有默认值"),
@@ -186,6 +195,7 @@ impl CliArgs {
                 .unwrap_or_else(default_jobs),
             overwrite: matches.get_flag("overwrite"),
             dry_run: matches.get_flag("dry_run"),
+            list_formats: matches.get_flag("list_formats"),
         }
     }
 }
@@ -291,5 +301,32 @@ mod tests {
                 .try_get_matches_from(["image-convert", "-i", ".", "-f", "png", "-d", "255"])
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn list_formats_needs_no_input_or_format() {
+        let args = parse_from(&["image-convert", "--list-formats"]);
+        assert!(args.list_formats);
+        assert!(args.inputs.is_empty());
+        // -f 缺省时字段取默认值，不参与转换。
+        assert_eq!(args.format, TargetFormat::default());
+
+        // 没有 --list-formats 时，-i 和 -f 仍然必填。
+        assert!(
+            command()
+                .try_get_matches_from(["image-convert", "--dry-run"])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn decode_only_targets_parse() {
+        for text in [
+            "jxl", "heic", "heif", "jp2", "j2k", "j2c", "pcx", "sgi", "icns", "wbmp", "xpm", "ora",
+            "otb", "xbm",
+        ] {
+            let args = parse_from(&["image-convert", "-i", ".", "-f", text]);
+            assert!(args.format.is_decode_only(), "{text} 应解析为仅解码格式");
+        }
     }
 }
