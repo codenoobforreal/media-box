@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 /// 输出路径推导错误。
@@ -43,31 +41,6 @@ pub fn output_path(
     Ok(directory.join(format!("{stem}.{extension}")))
 }
 
-/// 处理同批次内的输出冲突：`desired` 已被占用时追加 `-1`、`-2` 后缀。
-///
-/// 只解决批次内冲突，不检查磁盘上是否已存在；是否跳过已存在文件由调用方决定。
-#[must_use]
-pub fn collision_free(desired: &Path, taken: &mut HashSet<PathBuf>) -> PathBuf {
-    if taken.insert(desired.to_path_buf()) {
-        return desired.to_path_buf();
-    }
-
-    let stem = desired.file_stem().unwrap_or(OsStr::new(""));
-    let extension = desired.extension().unwrap_or(OsStr::new(""));
-    let mut suffix = 1u32;
-    loop {
-        let candidate = desired.with_file_name(format!(
-            "{}-{suffix}.{}",
-            stem.display(),
-            extension.display()
-        ));
-        if taken.insert(candidate.clone()) {
-            return candidate;
-        }
-        suffix += 1;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,28 +71,5 @@ mod tests {
         let source = Path::new("in/photo.png");
         let path = output_path(source, Some(Path::new("out")), Path::new("in"), "gif").unwrap();
         assert_eq!(path, PathBuf::from("out/photo.gif"));
-    }
-
-    #[test]
-    fn collision_free_keeps_path_when_unused() {
-        let mut taken = HashSet::new();
-        let desired = Path::new("out/photo.webp");
-        assert_eq!(collision_free(desired, &mut taken), *desired);
-        assert!(taken.contains(desired));
-    }
-
-    #[test]
-    fn collision_free_appends_increasing_suffixes() {
-        let mut taken = HashSet::new();
-        let desired = Path::new("out/photo.webp");
-        assert_eq!(collision_free(desired, &mut taken), *desired);
-        assert_eq!(
-            collision_free(desired, &mut taken),
-            PathBuf::from("out/photo-1.webp")
-        );
-        assert_eq!(
-            collision_free(desired, &mut taken),
-            PathBuf::from("out/photo-2.webp")
-        );
     }
 }

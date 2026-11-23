@@ -588,6 +588,7 @@ dependencies = [
  "anyhow",
  "clap",
  "image",
+ "media-box-core",
  "thiserror",
 ]
 

@@ -9,6 +9,7 @@ description = "纯 Rust 的图片批量格式转换工具"
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true
+media-box-core.workspace = true
 thiserror.workspace = true
 
 [lints]

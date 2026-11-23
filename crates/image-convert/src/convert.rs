@@ -1,12 +1,14 @@
 use crate::format::{IMAGE_EXTENSIONS, TargetFormat};
-use crate::output_path::{collision_free, output_path};
+use crate::output_path::output_path;
 use anyhow::{Context, Result};
 use image::codecs::avif::AvifEncoder;
 use image::codecs::jpeg::JpegEncoder;
 use image::{
     DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder, ImageFormat, ImageReader,
 };
-use std::collections::{HashMap, HashSet};
+use media_box_core::media_scan::{ScannedFile, collect_files};
+use media_box_core::output_path::collision_free;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -71,55 +73,13 @@ impl ConvertOutcome {
     }
 }
 
-/// 待转换的源图片及其所属输入根目录（用于镜像输出结构）。
-#[derive(Debug, Clone, PartialEq)]
-struct SourceImage {
-    path: PathBuf,
-    root: PathBuf,
-}
-
 /// 收集所有起始路径下的图片。
 ///
 /// - 显式传入的文件一律接受（由调用方负责其可解码性）；
 /// - 目录内容按图片扩展名筛选，depth 为递归层级，0 表示只看当前目录；
 /// - 符号链接跳过，重复路径去重。
-fn collect_images(inputs: &[impl AsRef<Path>], depth: u8) -> Result<Vec<SourceImage>> {
-    let mut roots = Vec::new();
-    let mut files = Vec::new();
-
-    for input in inputs {
-        let absolute = std::path::absolute(input.as_ref())
-            .with_context(|| format!("解析输入路径 {}", input.as_ref().display()))?;
-        let metadata = fs::symlink_metadata(&absolute)
-            .with_context(|| format!("读取输入路径 {}", absolute.display()))?;
-
-        if metadata.is_symlink() {
-            continue;
-        }
-
-        if metadata.is_dir() {
-            roots.push(absolute);
-        } else if metadata.is_file() {
-            let root = absolute
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from("."));
-            files.push(SourceImage {
-                path: absolute,
-                root,
-            });
-        }
-    }
-
-    let mut collector = ImageCollector::default();
-    for root in &roots {
-        collector.collect_dir(root, depth)?;
-    }
-    for file in files {
-        collector.accept_file(file);
-    }
-
-    Ok(collector.images)
+fn collect_images(inputs: &[impl AsRef<Path>], depth: u8) -> Result<Vec<ScannedFile>> {
+    collect_files(inputs, IMAGE_EXTENSIONS, Some(depth))
 }
 
 /// 运行批量转换，返回逐文件结果（按源路径排序，保证输出稳定）。
@@ -143,7 +103,7 @@ pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
 
 /// 为 --dry-run 生成计划结果，不写盘。
 fn plan_dry_run(
-    images: &[SourceImage],
+    images: &[ScannedFile],
     options: &ConvertOptions,
     extension: &str,
 ) -> Vec<ConvertOutcome> {
@@ -164,7 +124,7 @@ fn plan_dry_run(
 }
 
 /// 为整批预留输出路径，保证同批同名文件互不覆盖。
-fn plan_tasks(images: &[SourceImage], options: &ConvertOptions, extension: &str) -> Vec<Task> {
+fn plan_tasks(images: &[ScannedFile], options: &ConvertOptions, extension: &str) -> Vec<Task> {
     let mut taken = HashSet::new();
     let mut tasks = Vec::with_capacity(images.len());
     for image in images {
@@ -260,7 +220,7 @@ fn convert_task(index: usize, tasks: &[Task], options: &ConvertOptions) -> Conve
 }
 
 fn resolve_target(
-    source: &SourceImage,
+    source: &ScannedFile,
     options: &ConvertOptions,
     extension: &str,
 ) -> std::result::Result<PathBuf, String> {
@@ -331,78 +291,6 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> Result<u64> {
         Err(error) => {
             let _ = fs::remove_file(&temp);
             Err(error).with_context(|| format!("替换输出 {}", target.display()))
-        }
-    }
-}
-
-fn is_image_by_ext(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            IMAGE_EXTENSIONS
-                .iter()
-                .any(|known| extension.eq_ignore_ascii_case(known))
-        })
-}
-
-#[derive(Default)]
-struct ImageCollector {
-    images: Vec<SourceImage>,
-    seen: HashSet<PathBuf>,
-    /// 目录 -> 已用过的剩余深度，取最大值以合并多次访问。
-    visited_dirs: HashMap<PathBuf, u8>,
-}
-
-impl ImageCollector {
-    fn collect_dir(&mut self, root: &Path, depth: u8) -> Result<()> {
-        let mut stack = vec![(root.to_path_buf(), depth)];
-
-        while let Some((dir, remaining)) = stack.pop() {
-            if !self.claim_dir(&dir, remaining) {
-                continue;
-            }
-
-            let entries =
-                fs::read_dir(&dir).with_context(|| format!("读取目录 {}", dir.display()))?;
-            for entry in entries {
-                let entry = entry.with_context(|| format!("读取目录项 {}", dir.display()))?;
-                let file_type = entry
-                    .file_type()
-                    .with_context(|| format!("读取目录项类型 {}", entry.path().display()))?;
-                let path = entry.path();
-
-                if file_type.is_symlink() {
-                    continue;
-                }
-                if file_type.is_dir() {
-                    if remaining > 0 {
-                        stack.push((path, remaining - 1));
-                    }
-                } else if file_type.is_file() && is_image_by_ext(&path) {
-                    self.accept_file(SourceImage {
-                        path,
-                        root: root.to_path_buf(),
-                    });
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn claim_dir(&mut self, dir: &Path, remaining: u8) -> bool {
-        match self.visited_dirs.get(dir).copied() {
-            Some(previous) if remaining <= previous => false,
-            _ => {
-                self.visited_dirs.insert(dir.to_path_buf(), remaining);
-                true
-            }
-        }
-    }
-
-    fn accept_file(&mut self, image: SourceImage) {
-        if self.seen.insert(image.path.clone()) {
-            self.images.push(image);
         }
     }
 }
