@@ -8,23 +8,90 @@ pub enum FormatError {
     Unsupported(String),
 }
 
-/// 规范扩展名、别名与目标格式的映射表，同时是支持的格式清单。
-const FORMAT_TABLE: &[(ImageFormat, &str, &[&str])] = &[
-    (ImageFormat::Png, "png", &["png"]),
-    (ImageFormat::Jpeg, "jpg", &["jpg", "jpeg"]),
-    (ImageFormat::Gif, "gif", &["gif"]),
-    (ImageFormat::WebP, "webp", &["webp"]),
-    (ImageFormat::Pnm, "pnm", &["pnm"]),
-    (ImageFormat::Tiff, "tif", &["tif", "tiff"]),
-    (ImageFormat::Tga, "tga", &["tga"]),
-    (ImageFormat::Dds, "dds", &["dds"]),
-    (ImageFormat::Bmp, "bmp", &["bmp"]),
-    (ImageFormat::Ico, "ico", &["ico"]),
-    (ImageFormat::Hdr, "hdr", &["hdr"]),
-    (ImageFormat::OpenExr, "exr", &["exr", "openexr"]),
-    (ImageFormat::Farbfeld, "ff", &["ff", "farbfeld"]),
-    (ImageFormat::Avif, "avif", &["avif"]),
-    (ImageFormat::Qoi, "qoi", &["qoi"]),
+/// 一种目标格式的元数据：底层格式、规范扩展名与可接受的别名。
+struct FormatSpec {
+    format: ImageFormat,
+    extension: &'static str,
+    aliases: &'static [&'static str],
+}
+
+/// 支持的目标格式清单，同时是规范扩展名与别名的映射表。
+const FORMAT_TABLE: &[FormatSpec] = &[
+    FormatSpec {
+        format: ImageFormat::Png,
+        extension: "png",
+        aliases: &["png"],
+    },
+    FormatSpec {
+        format: ImageFormat::Jpeg,
+        extension: "jpg",
+        aliases: &["jpg", "jpeg"],
+    },
+    FormatSpec {
+        format: ImageFormat::Gif,
+        extension: "gif",
+        aliases: &["gif"],
+    },
+    FormatSpec {
+        format: ImageFormat::WebP,
+        extension: "webp",
+        aliases: &["webp"],
+    },
+    FormatSpec {
+        format: ImageFormat::Pnm,
+        extension: "pnm",
+        aliases: &["pnm"],
+    },
+    FormatSpec {
+        format: ImageFormat::Tiff,
+        extension: "tif",
+        aliases: &["tif", "tiff"],
+    },
+    FormatSpec {
+        format: ImageFormat::Tga,
+        extension: "tga",
+        aliases: &["tga"],
+    },
+    FormatSpec {
+        format: ImageFormat::Dds,
+        extension: "dds",
+        aliases: &["dds"],
+    },
+    FormatSpec {
+        format: ImageFormat::Bmp,
+        extension: "bmp",
+        aliases: &["bmp"],
+    },
+    FormatSpec {
+        format: ImageFormat::Ico,
+        extension: "ico",
+        aliases: &["ico"],
+    },
+    FormatSpec {
+        format: ImageFormat::Hdr,
+        extension: "hdr",
+        aliases: &["hdr"],
+    },
+    FormatSpec {
+        format: ImageFormat::OpenExr,
+        extension: "exr",
+        aliases: &["exr", "openexr"],
+    },
+    FormatSpec {
+        format: ImageFormat::Farbfeld,
+        extension: "ff",
+        aliases: &["ff", "farbfeld"],
+    },
+    FormatSpec {
+        format: ImageFormat::Avif,
+        extension: "avif",
+        aliases: &["avif"],
+    },
+    FormatSpec {
+        format: ImageFormat::Qoi,
+        extension: "qoi",
+        aliases: &["qoi"],
+    },
 ];
 
 /// 扫描目录时用于筛选图片的扩展名（小写，含别名）。
@@ -48,8 +115,8 @@ impl TargetFormat {
     pub fn extension(self) -> &'static str {
         FORMAT_TABLE
             .iter()
-            .find(|(format, _, _)| *format == self.0)
-            .map_or("", |(_, extension, _)| extension)
+            .find(|spec| spec.format == self.0)
+            .map_or("", |spec| spec.extension)
     }
 
     /// 目标格式在当前编译特性下是否可写。
@@ -65,12 +132,12 @@ impl FromStr for TargetFormat {
     fn from_str(text: &str) -> Result<Self, FormatError> {
         FORMAT_TABLE
             .iter()
-            .find(|(_, _, aliases)| {
-                aliases
+            .find(|spec| {
+                spec.aliases
                     .iter()
                     .any(|alias| alias.eq_ignore_ascii_case(text.trim()))
             })
-            .map(|(format, _, _)| TargetFormat(*format))
+            .map(|spec| TargetFormat(spec.format))
             .ok_or_else(|| FormatError::Unsupported(text.to_string()))
     }
 }
@@ -130,8 +197,8 @@ mod tests {
     #[test]
     fn extension_set_covers_every_alias() {
         let listed: Vec<&str> = IMAGE_EXTENSIONS.to_vec();
-        for (_, _, aliases) in FORMAT_TABLE.iter() {
-            for alias in aliases.iter() {
+        for spec in FORMAT_TABLE.iter() {
+            for alias in spec.aliases.iter() {
                 assert!(listed.contains(alias), "别名 {alias} 未出现在扩展名集合中");
             }
         }
