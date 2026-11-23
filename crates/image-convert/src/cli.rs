@@ -1,5 +1,6 @@
 use crate::convert::ConvertOptions;
 use crate::format::TargetFormat;
+use crate::metadata::MetadataMode;
 use clap::{Arg, ArgAction, Command, command, value_parser};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -58,7 +59,10 @@ pub struct CliArgs {
     pub overwrite: bool,
     pub dry_run: bool,
     pub optimize: bool,
+    pub metadata: MetadataMode,
     pub list_formats: bool,
+    /// -f 是否由用户显式给出（--meta list 等模式可不给出）。
+    pub format_explicit: bool,
 }
 
 impl From<CliArgs> for ConvertOptions {
@@ -73,6 +77,7 @@ impl From<CliArgs> for ConvertOptions {
             overwrite: args.overwrite,
             dry_run: args.dry_run,
             optimize: args.optimize,
+            metadata: args.metadata,
         }
     }
 }
@@ -83,13 +88,14 @@ impl From<CliArgs> for ConvertOptions {
 /// |---|---|---|---|---|
 /// | `-i` | `--input` | 路径，可重复 | 必填 | 源图片文件或目录 |
 /// | `-o` | `--output` | 目录 | 源所在目录 | 输出目录 |
-/// | `-f` | `--format` | 目标格式 | 必填 | 见 `--help` 的格式清单 |
+/// | `-f` | `--format` | 目标格式 | 转换时必填 | 见 `--help` 的格式清单 |
 /// | `-q` | `--quality` | `1..=100` | 85 | JPEG/AVIF 有损质量 |
 /// | `-d` | `--depth` | `0..=255` | 0 | 目录递归深度 |
 /// | `-j` | `--jobs` | `N` | CPU 逻辑核数 | 并发任务数 |
 /// | `--overwrite` | `--overwrite` | 开关 | 关 | 覆盖已存在输出 |
 /// | `--dry-run` | `--dry-run` | 开关 | 关 | 只列出，不写盘 |
 /// | `--optimize` | `--optimize` | 开关 | 关 | PNG 输出启用最高无损压缩 |
+/// | `--meta` | `--meta` | keep/strip/list | keep | 源元数据保留、剔除或只列出摘要 |
 pub fn command() -> Command {
     command!()
         .version(env!("CARGO_PKG_VERSION"))
@@ -118,8 +124,7 @@ pub fn command() -> Command {
                 .long("format")
                 .value_name("FORMAT")
                 .help("目标格式：png/jpg/webp/avif/gif/tif/bmp/ico/qoi/hdr/exr/jxl；heic/heif 仅支持解码，用 --list-formats 查看能力矩阵")
-                .value_parser(value_parser!(TargetFormat))
-                .required_unless_present("list_formats"),
+                .value_parser(value_parser!(TargetFormat)),
         )
         .arg(
             Arg::new("list_formats")
@@ -171,6 +176,14 @@ pub fn command() -> Command {
                 .help("PNG 输出时启用最高无损压缩（默认关闭）")
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("metadata")
+                .long("meta")
+                .value_name("MODE")
+                .help("元数据处理：keep（默认，尽力保留）、strip（不携带）、list（只列出摘要）")
+                .value_parser(value_parser!(MetadataMode))
+                .default_value("keep"),
+        )
 }
 
 /// 默认并发数：CPU 逻辑核数，失败时退回 1。
@@ -205,8 +218,28 @@ impl CliArgs {
             overwrite: matches.get_flag("overwrite"),
             dry_run: matches.get_flag("dry_run"),
             optimize: matches.get_flag("optimize"),
+            metadata: *matches
+                .get_one::<MetadataMode>("metadata")
+                .expect("--meta 有默认值"),
             list_formats: matches.get_flag("list_formats"),
+            format_explicit: matches.contains_id("format"),
         }
+    }
+
+    /// 校验参数组合，返回错误信息。
+    ///
+    /// --list-formats 与 --meta list 只读取信息，不需要 -f；其余转换必须显式给出 -f。
+    pub fn validate(&self) -> std::result::Result<(), String> {
+        if self.list_formats || self.metadata == MetadataMode::List {
+            return Ok(());
+        }
+        if self.inputs.is_empty() {
+            return Err("缺少输入：用 -i 指定源图片文件或目录".to_string());
+        }
+        if !self.format_explicit {
+            return Err("缺少目标格式：用 -f 指定输出格式".to_string());
+        }
+        Ok(())
     }
 }
 
@@ -232,6 +265,7 @@ mod tests {
         assert!(!args.overwrite);
         assert!(!args.dry_run);
         assert!(!args.optimize);
+        assert_eq!(args.metadata, MetadataMode::Keep);
         assert_eq!(args.output_dir, None);
     }
 
@@ -267,19 +301,23 @@ mod tests {
 
     #[test]
     fn input_is_required_and_repeatable() {
+        // 没有 -i 时 clap 直接拒绝。
         assert!(
             command()
                 .try_get_matches_from(["image-convert", "-f", "png"])
                 .is_err()
         );
-        assert!(
-            command()
-                .try_get_matches_from(["image-convert", "-i", "."])
-                .is_err()
-        );
+
+        // -f 的必填由 validate 保证；--meta list 模式可省略。
+        let list = parse_from(&["image-convert", "-i", ".", "--meta", "list"]);
+        assert!(list.validate().is_ok());
+
+        let missing_format = parse_from(&["image-convert", "-i", "."]);
+        assert!(missing_format.validate().is_err());
 
         let args = parse_from(&["image-convert", "-i", "a.png", "-i", "b.png", "-f", "jpg"]);
         assert_eq!(args.inputs.len(), 2);
+        assert!(args.validate().is_ok());
     }
 
     #[test]
@@ -344,5 +382,26 @@ mod tests {
     fn jxl_target_is_writable() {
         let args = parse_from(&["image-convert", "-i", ".", "-f", "jxl"]);
         assert!(!args.format.is_decode_only());
+    }
+
+    #[test]
+    fn metadata_mode_is_parsed() {
+        let keep = parse_from(&["image-convert", "-i", ".", "-f", "png"]);
+        assert_eq!(keep.metadata, MetadataMode::Keep);
+
+        let strip = parse_from(&["image-convert", "-i", ".", "-f", "png", "--meta", "strip"]);
+        assert_eq!(strip.metadata, MetadataMode::Strip);
+
+        let list = parse_from(&["image-convert", "-i", ".", "-f", "png", "--meta", "list"]);
+        assert_eq!(list.metadata, MetadataMode::List);
+    }
+
+    #[test]
+    fn invalid_metadata_mode_is_rejected() {
+        assert!(
+            command()
+                .try_get_matches_from(["image-convert", "-i", ".", "-f", "png", "--meta", "drop"])
+                .is_err()
+        );
     }
 }

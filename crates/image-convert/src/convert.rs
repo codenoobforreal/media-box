@@ -1,10 +1,12 @@
 use crate::codecs;
 use crate::format::{IMAGE_EXTENSIONS, TargetFormat};
+use crate::metadata::{Metadata, MetadataMode};
 use crate::output_path::output_path;
 use anyhow::{Context, Result};
 use image::codecs::avif::AvifEncoder;
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+use image::codecs::tiff::TiffEncoder;
 use image::{ColorType, DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder, ImageFormat};
 use media_box_core::media_scan::{ScannedFile, collect_files};
 use media_box_core::output_path::collision_free;
@@ -32,6 +34,8 @@ pub struct ConvertOptions {
     pub dry_run: bool,
     /// PNG 输出时启用最高压缩（无损）。
     pub optimize: bool,
+    /// 源图片元数据的处理方式。
+    pub metadata: MetadataMode,
 }
 
 /// 单个文件的转换结果。
@@ -105,6 +109,41 @@ pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
         &plan_tasks(&images, &options, extension),
         &options,
     ))
+}
+
+/// 为 --meta list 收集输入并打印每个源图片的元数据摘要，不执行转换。
+pub fn list_metadata(options: &ConvertOptions, writer: &mut impl std::io::Write) -> Result<()> {
+    let images = collect_images(&options.inputs, options.depth)?;
+    if images.is_empty() {
+        anyhow::bail!("未找到任何图片");
+    }
+
+    for image in images {
+        match crate::metadata::read_metadata(&image.path) {
+            Ok(metadata) => writeln!(writer, "{}", describe(&image.path, &metadata))?,
+            Err(error) => writeln!(writer, "失败 {}：{error:#}", image.path.display())?,
+        }
+    }
+    Ok(())
+}
+
+/// 生成单张源图片的元数据摘要文本。
+fn describe(source: &Path, metadata: &Metadata) -> String {
+    match (&metadata.exif, &metadata.icc) {
+        (Some(exif), Some(icc)) => format!(
+            "{}：EXIF {} 字节，ICC {} 字节",
+            source.display(),
+            exif.len(),
+            icc.len()
+        ),
+        (Some(exif), None) => {
+            format!("{}：EXIF {} 字节，无 ICC", source.display(), exif.len())
+        }
+        (None, Some(icc)) => {
+            format!("{}：无 EXIF，ICC {} 字节", source.display(), icc.len())
+        }
+        (None, None) => format!("{}：无元数据", source.display()),
+    }
 }
 
 /// 为 --dry-run 生成计划结果，不写盘。
@@ -243,21 +282,36 @@ fn resolve_target(
 fn convert_one(source: &Path, target: &Path, options: &ConvertOptions) -> Result<u64> {
     let image = codecs::decode_input(source)?;
 
-    let buffer = encode_to_buffer(&image, options.format, options.quality, options.optimize)
-        .with_context(|| format!("编码图片 {}", source.display()))?;
+    // keep 模式尽力读取源元数据；读不到（格式不支持）时按无元数据处理。
+    let metadata = if options.metadata == MetadataMode::Keep {
+        crate::metadata::read_metadata(source).unwrap_or_default()
+    } else {
+        Metadata::default()
+    };
+
+    let buffer = encode_to_buffer(
+        &image,
+        options.format,
+        options.quality,
+        options.optimize,
+        &metadata,
+    )
+    .with_context(|| format!("编码图片 {}", source.display()))?;
 
     write_atomic(target, &buffer).with_context(|| format!("写入输出 {}", target.display()))
 }
 
 /// 把动态图像编码为内存字节。
 ///
-/// JPEG/AVIF 使用可配置质量的编码器；PNG 在 optimize 时启用最高压缩；
+/// JPEG/AVIF 使用可配置质量的编码器；PNG 在 optimize 时启用最高压缩，
+/// 并在 keep 模式透传 EXIF/ICC；TIFF 在 keep 模式透传 ICC；
 /// JXL 走 zune-jpegxl；其余格式走通用写出。
 fn encode_to_buffer(
     image: &DynamicImage,
     format: TargetFormat,
     quality: u8,
     optimize: bool,
+    metadata: &Metadata,
 ) -> Result<Vec<u8>> {
     let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
     match format {
@@ -274,15 +328,31 @@ fn encode_to_buffer(
                 ExtendedColorType::Rgba8,
             )?;
         }
-        TargetFormat::Standard(ImageFormat::Png) if optimize => {
+        TargetFormat::Standard(ImageFormat::Png) => {
             let (width, height) = image.dimensions();
-            let (color, data) = png_pixel_buffer(image);
-            PngEncoder::new_with_quality(
-                &mut cursor,
-                CompressionType::Best,
-                FilterType::Adaptive,
-            )
-            .write_image(&data, width, height, color)?;
+            let (color, data) = pixel_buffer(image);
+            let compression = if optimize {
+                CompressionType::Best
+            } else {
+                CompressionType::Fast
+            };
+            let mut encoder = PngEncoder::new_with_quality(&mut cursor, compression, FilterType::Adaptive);
+            if let Some(exif) = &metadata.exif {
+                encoder.set_exif_metadata(exif.clone())?;
+            }
+            if let Some(icc) = &metadata.icc {
+                encoder.set_icc_profile(icc.clone())?;
+            }
+            encoder.write_image(&data, width, height, color)?;
+        }
+        TargetFormat::Standard(ImageFormat::Tiff) => {
+            let (width, height) = image.dimensions();
+            let (color, data) = pixel_buffer(image);
+            let mut encoder = TiffEncoder::new(&mut cursor);
+            if let Some(icc) = &metadata.icc {
+                encoder.set_icc_profile(icc.clone())?;
+            }
+            encoder.write_image(&data, width, height, color)?;
         }
         TargetFormat::Standard(format) => {
             image.write_to(&mut cursor, format)?;
@@ -350,8 +420,8 @@ fn jxl_pixel_layout(image: &DynamicImage) -> (zune_core::colorspace::ColorSpace,
     }
 }
 
-/// 取图像用于 PNG 编码的（颜色类型，原始像素字节），保留原始位深与通道。
-fn png_pixel_buffer(image: &DynamicImage) -> (ExtendedColorType, Vec<u8>) {
+/// 取图像用于编码的（颜色类型，原始像素字节），保留原始位深与通道。
+fn pixel_buffer(image: &DynamicImage) -> (ExtendedColorType, Vec<u8>) {
     match image.color() {
         ColorType::L8 => (ExtendedColorType::L8, image.to_luma8().as_raw().to_vec()),
         ColorType::La8 => (ExtendedColorType::La8, image.to_luma_alpha8().as_raw().to_vec()),
@@ -430,6 +500,7 @@ mod tests {
             overwrite: false,
             dry_run: false,
             optimize: false,
+            metadata: MetadataMode::Keep,
         }
     }
 
@@ -607,6 +678,90 @@ mod tests {
             .decode()
             .unwrap();
         assert_eq!(decoded.dimensions(), (4, 3));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// 造一个带 EXIF 的 PNG 源文件，返回其路径。
+    fn write_png_with_exif(path: &Path) {
+        let image = DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            2,
+            2,
+            image::Rgb([1, 2, 3]),
+        ));
+        let (width, height) = image.dimensions();
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        let mut encoder =
+            PngEncoder::new_with_quality(&mut cursor, CompressionType::Fast, FilterType::Adaptive);
+        encoder
+            .set_exif_metadata(b"EXIF-TEST".to_vec())
+            .unwrap();
+        encoder
+            .write_image(image.to_rgb8().as_raw(), width, height, ExtendedColorType::Rgb8)
+            .unwrap();
+        fs::write(path, cursor.into_inner()).unwrap();
+    }
+
+    #[test]
+    fn keep_metadata_round_trips_exif_for_png() {
+        let root = temp_dir("meta-keep-exif");
+        let source = root.join("photo.png");
+        write_png_with_exif(&source);
+
+        let mut opts = options(vec![source], Some(root.join("out")));
+        opts.format = "png".parse().unwrap();
+        opts.metadata = MetadataMode::Keep;
+        let outcomes = run(opts).unwrap();
+        assert!(matches!(outcomes[0], ConvertOutcome::Success { .. }));
+
+        let metadata = crate::metadata::read_metadata(outcomes[0].target()).unwrap();
+        assert_eq!(metadata.exif.as_deref(), Some(b"EXIF-TEST".as_slice()));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn strip_metadata_drops_exif_for_png() {
+        let root = temp_dir("meta-strip-exif");
+        let source = root.join("photo.png");
+        write_png_with_exif(&source);
+
+        let mut opts = options(vec![source], Some(root.join("out")));
+        opts.format = "png".parse().unwrap();
+        opts.metadata = MetadataMode::Strip;
+        let outcomes = run(opts).unwrap();
+        assert!(matches!(outcomes[0], ConvertOutcome::Success { .. }));
+
+        let metadata = crate::metadata::read_metadata(outcomes[0].target()).unwrap();
+        assert_eq!(metadata.exif, None);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn list_metadata_reports_plain_png() {
+        let root = temp_dir("meta-list");
+        let source = root.join("photo.png");
+        write_png(&source, 2, 2);
+
+        let opts = options(vec![source.clone()], None);
+        let mut out = Vec::new();
+        list_metadata(&opts, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("无元数据"), "输出应为无元数据：{text}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn keep_metadata_converts_png_without_metadata() {
+        let root = temp_dir("meta-keep");
+        let source = root.join("photo.png");
+        write_png(&source, 2, 2);
+
+        let outcomes = run(options(vec![source], Some(root.join("out")))).unwrap();
+        assert_eq!(outcomes.len(), 1);
+        assert!(matches!(outcomes[0], ConvertOutcome::Success { .. }));
 
         let _ = fs::remove_dir_all(&root);
     }

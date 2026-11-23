@@ -2,6 +2,7 @@ mod cli;
 mod codecs;
 mod convert;
 mod format;
+mod metadata;
 mod output_path;
 mod report;
 
@@ -14,7 +15,16 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if let Err(error) = args.validate() {
+        anyhow::bail!(error);
+    }
+
     let options: convert::ConvertOptions = args.into();
+
+    if options.metadata == metadata::MetadataMode::List {
+        convert::list_metadata(&options, &mut std::io::stdout().lock())?;
+        return Ok(());
+    }
 
     if options.format.is_decode_only() {
         anyhow::bail!(
