@@ -52,8 +52,8 @@ pub fn collision_free(desired: &Path, taken: &mut HashSet<PathBuf>) -> PathBuf {
         return desired.to_path_buf();
     }
 
-    let stem = PathBuf::from(desired.file_stem().unwrap_or(OsStr::new("")));
-    let extension = PathBuf::from(desired.extension().unwrap_or(OsStr::new("")));
+    let stem = desired.file_stem().unwrap_or(OsStr::new(""));
+    let extension = desired.extension().unwrap_or(OsStr::new(""));
     let mut suffix = 1u32;
     loop {
         let candidate = desired.with_file_name(format!(

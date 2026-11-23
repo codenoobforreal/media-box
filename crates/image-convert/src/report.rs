@@ -85,39 +85,34 @@ pub fn report(outcomes: &[ConvertOutcome], writer: &mut impl Write) -> io::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::convert::ConvertOutcome;
     use std::path::PathBuf;
-
-    fn outcome(variant: ConvertOutcome) -> ConvertOutcome {
-        variant
-    }
 
     #[test]
     fn summarizes_all_variants() {
         let outcomes = vec![
-            outcome(ConvertOutcome::Success {
+            ConvertOutcome::Success {
                 source: PathBuf::from("a.png"),
                 target: PathBuf::from("a.webp"),
                 bytes: 10,
-            }),
-            outcome(ConvertOutcome::Success {
+            },
+            ConvertOutcome::Success {
                 source: PathBuf::from("b.png"),
                 target: PathBuf::from("b.webp"),
                 bytes: 20,
-            }),
-            outcome(ConvertOutcome::Skipped {
+            },
+            ConvertOutcome::Skipped {
                 source: PathBuf::from("c.png"),
                 target: PathBuf::from("c.webp"),
-            }),
-            outcome(ConvertOutcome::Failed {
+            },
+            ConvertOutcome::Failed {
                 source: PathBuf::from("d.png"),
                 target: PathBuf::new(),
                 error: "解码失败".to_string(),
-            }),
-            outcome(ConvertOutcome::Planned {
+            },
+            ConvertOutcome::Planned {
                 source: PathBuf::from("e.png"),
                 target: PathBuf::from("e.webp"),
-            }),
+            },
         ];
 
         let summary = Summary::from_outcomes(&outcomes);

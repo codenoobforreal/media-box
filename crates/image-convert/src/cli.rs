@@ -164,41 +164,10 @@ fn default_jobs() -> usize {
         .max(1)
 }
 
-/// 解析命令行参数。
-pub fn parse() -> CliArgs {
-    let matches = command().get_matches();
-    CliArgs {
-        inputs: matches
-            .get_many::<PathBuf>("input")
-            .map(|values| values.cloned().collect())
-            .unwrap_or_default(),
-        output_dir: matches.get_one::<PathBuf>("output").cloned(),
-        format: *matches
-            .get_one::<TargetFormat>("format")
-            .expect("--format 必填"),
-        quality: *matches
-            .get_one::<Quality>("quality")
-            .expect("--quality 有默认值"),
-        depth: *matches.get_one::<u8>("depth").expect("--depth 有默认值"),
-        jobs: matches
-            .get_one::<usize>("jobs")
-            .copied()
-            .unwrap_or_else(default_jobs),
-        overwrite: matches.get_flag("overwrite"),
-        dry_run: matches.get_flag("dry_run"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parse_from(args: &[&str]) -> CliArgs {
-        into_args(command().try_get_matches_from(args).unwrap())
-    }
-
-    fn into_args(matches: clap::ArgMatches) -> CliArgs {
-        CliArgs {
+impl CliArgs {
+    /// 由 clap 匹配结果构造命令行参数。
+    pub fn from_matches(matches: &clap::ArgMatches) -> Self {
+        Self {
             inputs: matches
                 .get_many::<PathBuf>("input")
                 .map(|values| values.cloned().collect())
@@ -218,6 +187,20 @@ mod tests {
             overwrite: matches.get_flag("overwrite"),
             dry_run: matches.get_flag("dry_run"),
         }
+    }
+}
+
+/// 解析命令行参数。
+pub fn parse() -> CliArgs {
+    CliArgs::from_matches(&command().get_matches())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_from(args: &[&str]) -> CliArgs {
+        CliArgs::from_matches(&command().try_get_matches_from(args).unwrap())
     }
 
     #[test]

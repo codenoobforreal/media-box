@@ -132,27 +132,43 @@ pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
     let extension = options.format.extension();
 
     if options.dry_run {
-        return Ok(images
-            .iter()
-            .map(|image| match resolve_target(image, &options, extension) {
-                Ok(target) => ConvertOutcome::Planned {
-                    source: image.path.clone(),
-                    target,
-                },
-                Err(error) => ConvertOutcome::Failed {
-                    source: image.path.clone(),
-                    target: PathBuf::new(),
-                    error,
-                },
-            })
-            .collect());
+        return Ok(plan_dry_run(&images, &options, extension));
     }
 
-    // 先在主线程为整批预留输出路径，保证同批同名文件互不覆盖。
+    Ok(run_tasks(
+        &plan_tasks(&images, &options, extension),
+        &options,
+    ))
+}
+
+/// 为 --dry-run 生成计划结果，不写盘。
+fn plan_dry_run(
+    images: &[SourceImage],
+    options: &ConvertOptions,
+    extension: &str,
+) -> Vec<ConvertOutcome> {
+    images
+        .iter()
+        .map(|image| match resolve_target(image, options, extension) {
+            Ok(target) => ConvertOutcome::Planned {
+                source: image.path.clone(),
+                target,
+            },
+            Err(error) => ConvertOutcome::Failed {
+                source: image.path.clone(),
+                target: PathBuf::new(),
+                error,
+            },
+        })
+        .collect()
+}
+
+/// 为整批预留输出路径，保证同批同名文件互不覆盖。
+fn plan_tasks(images: &[SourceImage], options: &ConvertOptions, extension: &str) -> Vec<Task> {
     let mut taken = HashSet::new();
     let mut tasks = Vec::with_capacity(images.len());
-    for image in &images {
-        match resolve_target(image, &options, extension) {
+    for image in images {
+        match resolve_target(image, options, extension) {
             Ok(target) => tasks.push(Task::Convert {
                 source: image.path.clone(),
                 target: collision_free(&target, &mut taken),
@@ -163,14 +179,16 @@ pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
             }),
         }
     }
+    tasks
+}
 
+/// 用工作池并发执行任务，收集并按源路径排序结果。
+fn run_tasks(tasks: &[Task], options: &ConvertOptions) -> Vec<ConvertOutcome> {
     let (task_tx, task_rx) = mpsc::channel::<usize>();
     let (result_tx, result_rx) = mpsc::channel::<ConvertOutcome>();
     let task_rx = Arc::new(Mutex::new(task_rx));
 
     let workers = options.jobs.max(1);
-    let tasks_ref: &[Task] = &tasks;
-    let options_ref = &options;
     thread::scope(|scope| {
         for _ in 0..workers {
             let task_rx = Arc::clone(&task_rx);
@@ -184,7 +202,7 @@ pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
                             Err(mpsc::RecvError) => return,
                         }
                     };
-                    let outcome = convert_task(index, tasks_ref, options_ref);
+                    let outcome = convert_task(index, tasks, options);
                     if result_tx.send(outcome).is_err() {
                         return;
                     }
@@ -192,7 +210,7 @@ pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
             });
         }
 
-        for (index, _) in tasks_ref.iter().enumerate() {
+        for (index, _) in tasks.iter().enumerate() {
             let _ = task_tx.send(index);
         }
         drop(task_tx);
@@ -201,7 +219,7 @@ pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
 
     let mut outcomes: Vec<ConvertOutcome> = result_rx.into_iter().collect();
     outcomes.sort_by(|left, right| left.source().cmp(right.source()));
-    Ok(outcomes)
+    outcomes
 }
 
 /// 一个待处理任务：路径已解析并预留，或已确定失败。
@@ -270,15 +288,15 @@ fn convert_one(source: &Path, target: &Path, options: &ConvertOptions) -> Result
 
 /// 把动态图像编码为内存字节。JPEG 与 AVIF 使用可配置质量的编码器，其余走通用写出。
 fn encode_to_buffer(image: &DynamicImage, format: ImageFormat, quality: u8) -> Result<Vec<u8>> {
-    let mut buffer = Vec::new();
+    let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
     match format {
         ImageFormat::Jpeg => {
-            JpegEncoder::new_with_quality(&mut buffer, quality).encode_image(image)?;
+            JpegEncoder::new_with_quality(&mut cursor, quality).encode_image(image)?;
         }
         ImageFormat::Avif => {
             let (width, height) = image.dimensions();
             let rgba = image.to_rgba8();
-            AvifEncoder::new_with_speed_quality(&mut buffer, AVIF_SPEED, quality).write_image(
+            AvifEncoder::new_with_speed_quality(&mut cursor, AVIF_SPEED, quality).write_image(
                 rgba.as_raw(),
                 width,
                 height,
@@ -286,12 +304,10 @@ fn encode_to_buffer(image: &DynamicImage, format: ImageFormat, quality: u8) -> R
             )?;
         }
         _ => {
-            let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
             image.write_to(&mut cursor, format)?;
-            return Ok(cursor.into_inner());
         }
     }
-    Ok(buffer)
+    Ok(cursor.into_inner())
 }
 
 /// 先写同目录临时文件再重命名，避免失败留下半截输出。
