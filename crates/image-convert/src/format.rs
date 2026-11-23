@@ -15,7 +15,9 @@ struct StandardSpec {
     aliases: &'static [&'static str],
 }
 
-/// image 内置格式的映射表，同时是输出格式清单。
+/// image 内置、纳入支持范围的格式映射表，同时是输出格式清单。
+///
+/// 只保留常用格式与有实际价值的现代/专业格式；小众或过时格式不在当前范围。
 const STANDARD_TABLE: &[StandardSpec] = &[
     StandardSpec {
         format: ImageFormat::Png,
@@ -38,26 +40,6 @@ const STANDARD_TABLE: &[StandardSpec] = &[
         aliases: &["webp"],
     },
     StandardSpec {
-        format: ImageFormat::Pnm,
-        extension: "pnm",
-        aliases: &["pnm"],
-    },
-    StandardSpec {
-        format: ImageFormat::Tiff,
-        extension: "tif",
-        aliases: &["tif", "tiff"],
-    },
-    StandardSpec {
-        format: ImageFormat::Tga,
-        extension: "tga",
-        aliases: &["tga"],
-    },
-    StandardSpec {
-        format: ImageFormat::Dds,
-        extension: "dds",
-        aliases: &["dds"],
-    },
-    StandardSpec {
         format: ImageFormat::Bmp,
         extension: "bmp",
         aliases: &["bmp"],
@@ -68,19 +50,9 @@ const STANDARD_TABLE: &[StandardSpec] = &[
         aliases: &["ico"],
     },
     StandardSpec {
-        format: ImageFormat::Hdr,
-        extension: "hdr",
-        aliases: &["hdr"],
-    },
-    StandardSpec {
-        format: ImageFormat::OpenExr,
-        extension: "exr",
-        aliases: &["exr", "openexr"],
-    },
-    StandardSpec {
-        format: ImageFormat::Farbfeld,
-        extension: "ff",
-        aliases: &["ff", "farbfeld"],
+        format: ImageFormat::Tiff,
+        extension: "tif",
+        aliases: &["tif", "tiff"],
     },
     StandardSpec {
         format: ImageFormat::Avif,
@@ -92,97 +64,44 @@ const STANDARD_TABLE: &[StandardSpec] = &[
         extension: "qoi",
         aliases: &["qoi"],
     },
+    StandardSpec {
+        format: ImageFormat::OpenExr,
+        extension: "exr",
+        aliases: &["exr", "openexr"],
+    },
+    StandardSpec {
+        format: ImageFormat::Hdr,
+        extension: "hdr",
+        aliases: &["hdr"],
+    },
 ];
 
-/// 仅可解码的扩展格式清单（输入专用）：注册解码 hook 的扩展名与别名。
+/// 仅可解码的扩展格式（输入专用）：注册解码桥接的扩展名与别名。
 struct ExtraSpec {
-    variant: ExtraFormat,
+    variant: DecodeOnlyFormat,
     extension: &'static str,
     aliases: &'static [&'static str],
 }
 
-/// 扩展接入的目标格式变体。
+/// 仅支持解码的扩展格式变体。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExtraFormat {
-    Jxl,
+pub enum DecodeOnlyFormat {
     Heic,
-    Jp2,
-    Pcx,
-    Sgi,
-    Icns,
-    Wbmp,
-    Xpm,
-    Ora,
-    Otb,
-    Xbm,
 }
 
-const DECODE_ONLY_TABLE: &[ExtraSpec] = &[
-    ExtraSpec {
-        variant: ExtraFormat::Jxl,
-        extension: "jxl",
-        aliases: &["jxl"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Heic,
-        extension: "heic",
-        aliases: &["heic", "heif"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Jp2,
-        extension: "jp2",
-        aliases: &["jp2", "j2k", "j2c"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Pcx,
-        extension: "pcx",
-        aliases: &["pcx"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Sgi,
-        extension: "sgi",
-        aliases: &["sgi"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Icns,
-        extension: "icns",
-        aliases: &["icns"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Wbmp,
-        extension: "wbmp",
-        aliases: &["wbmp"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Xpm,
-        extension: "xpm",
-        aliases: &["xpm"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Ora,
-        extension: "ora",
-        aliases: &["ora"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Otb,
-        extension: "otb",
-        aliases: &["otb"],
-    },
-    ExtraSpec {
-        variant: ExtraFormat::Xbm,
-        extension: "xbm",
-        aliases: &["xbm"],
-    },
-];
+const DECODE_ONLY_TABLE: &[ExtraSpec] = &[ExtraSpec {
+    variant: DecodeOnlyFormat::Heic,
+    extension: "heic",
+    aliases: &["heic", "heif"],
+}];
 
 /// 扫描目录时用于筛选图片的扩展名（小写）。
 ///
 /// 包含 image 内置格式、扩展接入格式的规范扩展名与常见别名；
 /// 显式传入的文件不受此清单限制。
 pub const IMAGE_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "pnm", "tif", "tiff", "tga", "dds", "bmp", "ico", "hdr",
-    "exr", "openexr", "ff", "farbfeld", "avif", "qoi", "jxl", "heic", "heif", "jp2", "j2k", "j2c",
-    "pcx", "sgi", "icns", "wbmp", "xpm", "ora", "otb", "xbm",
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "tif", "tiff", "avif", "qoi", "exr",
+    "openexr", "hdr", "jxl", "heic", "heif",
 ];
 
 #[cfg(feature = "jxl")]
@@ -195,35 +114,18 @@ const HEIF_ENABLED: bool = true;
 #[cfg(not(feature = "heif"))]
 const HEIF_ENABLED: bool = false;
 
-#[cfg(feature = "jp2")]
-const JP2_ENABLED: bool = true;
-#[cfg(not(feature = "jp2"))]
-const JP2_ENABLED: bool = false;
-
-#[cfg(feature = "extras")]
-const EXTRAS_ENABLED: bool = true;
-#[cfg(not(feature = "extras"))]
-const EXTRAS_ENABLED: bool = false;
-
 /// 输出目标格式。
 ///
-/// Standard 系列委托给 image::ImageFormat；其余为扩展接入的格式，
-/// 当前仅支持解码（输入），作为 `-f` 目标会在运行前被拒绝。
+/// `Standard` 委托给 image::ImageFormat；`Jxl` 由 zune-jpegxl 编码；
+/// `DecodeOnly` 仅支持解码，作为 `-f` 目标会在运行前被拒绝。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetFormat {
     Standard(ImageFormat),
-    Extra(ExtraFormat),
+    Jxl,
+    DecodeOnly(DecodeOnlyFormat),
 }
 
 impl TargetFormat {
-    /// 底层 image 格式；扩展格式返回 None。
-    pub fn as_image(self) -> Option<ImageFormat> {
-        match self {
-            Self::Standard(format) => Some(format),
-            Self::Extra(_) => None,
-        }
-    }
-
     /// 规范扩展名（不含点）。
     #[must_use]
     pub fn extension(self) -> &'static str {
@@ -232,9 +134,10 @@ impl TargetFormat {
                 .iter()
                 .find(|spec| spec.format == format)
                 .map_or("", |spec| spec.extension),
-            Self::Extra(extra) => DECODE_ONLY_TABLE
+            Self::Jxl => "jxl",
+            Self::DecodeOnly(variant) => DECODE_ONLY_TABLE
                 .iter()
-                .find(|spec| spec.variant == extra)
+                .find(|spec| spec.variant == variant)
                 .map_or("", |spec| spec.extension),
         }
     }
@@ -242,7 +145,7 @@ impl TargetFormat {
     /// 是否仅支持解码。
     #[must_use]
     pub fn is_decode_only(self) -> bool {
-        matches!(self, Self::Extra(_))
+        matches!(self, Self::DecodeOnly(_))
     }
 
     /// 目标格式在当前编译特性下是否可写。
@@ -250,7 +153,8 @@ impl TargetFormat {
     pub fn can_write(self) -> bool {
         match self {
             Self::Standard(format) => format.can_write(),
-            Self::Extra(_) => false,
+            Self::Jxl => JXL_ENABLED,
+            Self::DecodeOnly(_) => false,
         }
     }
 
@@ -284,14 +188,18 @@ impl FromStr for TargetFormat {
             })
             .map(|spec| TargetFormat::Standard(spec.format))
             .or_else(|| {
-                DECODE_ONLY_TABLE
-                    .iter()
-                    .find(|spec| {
-                        spec.aliases
-                            .iter()
-                            .any(|alias| alias.eq_ignore_ascii_case(trimmed))
-                    })
-                    .map(|spec| TargetFormat::Extra(spec.variant))
+                if trimmed.eq_ignore_ascii_case("jxl") {
+                    Some(TargetFormat::Jxl)
+                } else {
+                    DECODE_ONLY_TABLE
+                        .iter()
+                        .find(|spec| {
+                            spec.aliases
+                                .iter()
+                                .any(|alias| alias.eq_ignore_ascii_case(trimmed))
+                        })
+                        .map(|spec| TargetFormat::DecodeOnly(spec.variant))
+                }
             })
             .ok_or_else(|| FormatError::Unsupported(text.to_string()))
     }
@@ -311,6 +219,12 @@ pub fn print_capabilities(writer: &mut impl std::io::Write) -> std::io::Result<(
         };
         writeln!(writer, "  {:<6} {}", spec.extension, quality)?;
     }
+    let jxl_note = if JXL_ENABLED {
+        "无损，-q 不生效"
+    } else {
+        "无损，-q 不生效（特性 jxl 未启用，不可写）"
+    };
+    writeln!(writer, "  {:<6} {}", "jxl", jxl_note)?;
 
     writeln!(writer)?;
     writeln!(writer, "输入格式（解码）:")?;
@@ -325,14 +239,11 @@ pub fn print_capabilities(writer: &mut impl std::io::Write) -> std::io::Result<(
     )?;
     writeln!(
         writer,
-        "  扩展接入:   jxl（特性 jxl={}）  heic/heif（特性 heif={}）  jp2/j2k/j2c（特性 jp2={}）  pcx/sgi/icns/wbmp/xpm/ora/otb/xbm（特性 extras={}）",
-        JXL_ENABLED, HEIF_ENABLED, JP2_ENABLED, EXTRAS_ENABLED
+        "  扩展接入:   jxl（特性 jxl={}）  heic/heif（特性 heif={}）",
+        JXL_ENABLED, HEIF_ENABLED
     )?;
     writeln!(writer)?;
-    writeln!(
-        writer,
-        "注: heic/jp2 等扩展格式当前仅支持解码，不能作为 -f 目标。"
-    )?;
+    writeln!(writer, "注: heic 等扩展格式当前仅支持解码，不能作为 -f 目标。")?;
     Ok(())
 }
 
@@ -352,8 +263,6 @@ mod tests {
             ("tiff", ImageFormat::Tiff),
             ("exr", ImageFormat::OpenExr),
             ("openexr", ImageFormat::OpenExr),
-            ("ff", ImageFormat::Farbfeld),
-            ("farbfeld", ImageFormat::Farbfeld),
             ("qoi", ImageFormat::Qoi),
         ] {
             assert_eq!(
@@ -364,18 +273,15 @@ mod tests {
     }
 
     #[test]
-    fn parses_decode_only_aliases() {
+    fn parses_jxl_and_decode_only_aliases() {
+        assert_eq!("jxl".parse::<TargetFormat>().unwrap(), TargetFormat::Jxl);
         assert_eq!(
-            "jxl".parse::<TargetFormat>().unwrap(),
-            TargetFormat::Extra(ExtraFormat::Jxl)
+            "heic".parse::<TargetFormat>().unwrap(),
+            TargetFormat::DecodeOnly(DecodeOnlyFormat::Heic)
         );
         assert_eq!(
             "heif".parse::<TargetFormat>().unwrap(),
-            TargetFormat::Extra(ExtraFormat::Heic)
-        );
-        assert_eq!(
-            "j2c".parse::<TargetFormat>().unwrap(),
-            TargetFormat::Extra(ExtraFormat::Jp2)
+            TargetFormat::DecodeOnly(DecodeOnlyFormat::Heic)
         );
     }
 
@@ -397,6 +303,10 @@ mod tests {
             "bmp4".parse::<TargetFormat>().unwrap_err(),
             FormatError::Unsupported("bmp4".to_string())
         );
+        assert_eq!(
+            "jp2".parse::<TargetFormat>().unwrap_err(),
+            FormatError::Unsupported("jp2".to_string())
+        );
     }
 
     #[test]
@@ -407,25 +317,20 @@ mod tests {
             TargetFormat::Standard(ImageFormat::OpenExr).extension(),
             "exr"
         );
+        assert_eq!(TargetFormat::Jxl.extension(), "jxl");
         assert_eq!(
-            TargetFormat::Standard(ImageFormat::Farbfeld).extension(),
-            "ff"
+            TargetFormat::DecodeOnly(DecodeOnlyFormat::Heic).extension(),
+            "heic"
         );
-        assert_eq!(TargetFormat::Extra(ExtraFormat::Heic).extension(), "heic");
-        assert_eq!(TargetFormat::Extra(ExtraFormat::Jp2).extension(), "jp2");
     }
 
     #[test]
     fn decode_only_targets_are_not_writable() {
-        assert!(TargetFormat::Extra(ExtraFormat::Jxl).is_decode_only());
-        assert!(!TargetFormat::Extra(ExtraFormat::Jxl).can_write());
+        assert!(TargetFormat::DecodeOnly(DecodeOnlyFormat::Heic).is_decode_only());
+        assert!(!TargetFormat::DecodeOnly(DecodeOnlyFormat::Heic).can_write());
+        assert!(!TargetFormat::Jxl.is_decode_only());
+        assert_eq!(TargetFormat::Jxl.can_write(), JXL_ENABLED);
         assert!(TargetFormat::Standard(ImageFormat::Png).can_write());
-        assert!(
-            TargetFormat::Standard(ImageFormat::Png)
-                .as_image()
-                .is_some()
-        );
-        assert!(TargetFormat::Extra(ExtraFormat::Heic).as_image().is_none());
     }
 
     #[test]
@@ -434,12 +339,12 @@ mod tests {
         assert!(TargetFormat::Standard(ImageFormat::Avif).supports_quality());
         assert!(!TargetFormat::Standard(ImageFormat::WebP).supports_quality());
         assert!(!TargetFormat::Standard(ImageFormat::Png).supports_quality());
-        assert!(!TargetFormat::Extra(ExtraFormat::Jxl).supports_quality());
+        assert!(!TargetFormat::Jxl.supports_quality());
     }
 
     #[test]
     fn scan_extensions_cover_canonical_names() {
-        // 每个规范扩展名都应出现在扫描集合中（别名 heif/j2k/j2c 也在）。
+        // 每个规范扩展名都应出现在扫描集合中（别名也在）。
         for spec in STANDARD_TABLE.iter() {
             assert!(
                 IMAGE_EXTENSIONS.contains(&spec.extension),
@@ -447,6 +352,7 @@ mod tests {
                 spec.extension
             );
         }
+        assert!(IMAGE_EXTENSIONS.contains(&"jxl"));
         for spec in DECODE_ONLY_TABLE.iter() {
             assert!(
                 IMAGE_EXTENSIONS.contains(&spec.extension),

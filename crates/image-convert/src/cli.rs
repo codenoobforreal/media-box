@@ -57,6 +57,7 @@ pub struct CliArgs {
     pub jobs: usize,
     pub overwrite: bool,
     pub dry_run: bool,
+    pub optimize: bool,
     pub list_formats: bool,
 }
 
@@ -71,6 +72,7 @@ impl From<CliArgs> for ConvertOptions {
             jobs: args.jobs,
             overwrite: args.overwrite,
             dry_run: args.dry_run,
+            optimize: args.optimize,
         }
     }
 }
@@ -87,6 +89,7 @@ impl From<CliArgs> for ConvertOptions {
 /// | `-j` | `--jobs` | `N` | CPU 逻辑核数 | 并发任务数 |
 /// | `--overwrite` | `--overwrite` | 开关 | 关 | 覆盖已存在输出 |
 /// | `--dry-run` | `--dry-run` | 开关 | 关 | 只列出，不写盘 |
+/// | `--optimize` | `--optimize` | 开关 | 关 | PNG 输出启用最高无损压缩 |
 pub fn command() -> Command {
     command!()
         .version(env!("CARGO_PKG_VERSION"))
@@ -114,7 +117,7 @@ pub fn command() -> Command {
                 .short('f')
                 .long("format")
                 .value_name("FORMAT")
-                .help("目标格式：png/jpg/webp/avif/gif/tif/bmp/ico/tga/pnm/qoi/hdr/exr/ff/dds；heic/jxl/jp2 等扩展格式仅支持解码，用 --list-formats 查看能力矩阵")
+                .help("目标格式：png/jpg/webp/avif/gif/tif/bmp/ico/qoi/hdr/exr/jxl；heic/heif 仅支持解码，用 --list-formats 查看能力矩阵")
                 .value_parser(value_parser!(TargetFormat))
                 .required_unless_present("list_formats"),
         )
@@ -162,6 +165,12 @@ pub fn command() -> Command {
                 .help("只列出将转换的文件，不写盘")
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("optimize")
+                .long("optimize")
+                .help("PNG 输出时启用最高无损压缩（默认关闭）")
+                .action(ArgAction::SetTrue),
+        )
 }
 
 /// 默认并发数：CPU 逻辑核数，失败时退回 1。
@@ -195,6 +204,7 @@ impl CliArgs {
                 .unwrap_or_else(default_jobs),
             overwrite: matches.get_flag("overwrite"),
             dry_run: matches.get_flag("dry_run"),
+            optimize: matches.get_flag("optimize"),
             list_formats: matches.get_flag("list_formats"),
         }
     }
@@ -221,6 +231,7 @@ mod tests {
         assert!(args.jobs >= 1);
         assert!(!args.overwrite);
         assert!(!args.dry_run);
+        assert!(!args.optimize);
         assert_eq!(args.output_dir, None);
     }
 
@@ -242,6 +253,7 @@ mod tests {
             "4",
             "--overwrite",
             "--dry-run",
+            "--optimize",
         ]);
         assert_eq!(args.output_dir, Some(PathBuf::from("out")));
         assert_eq!(args.format, "avif".parse::<TargetFormat>().unwrap());
@@ -250,6 +262,7 @@ mod tests {
         assert_eq!(args.jobs, 4);
         assert!(args.overwrite);
         assert!(args.dry_run);
+        assert!(args.optimize);
     }
 
     #[test]
@@ -321,12 +334,15 @@ mod tests {
 
     #[test]
     fn decode_only_targets_parse() {
-        for text in [
-            "jxl", "heic", "heif", "jp2", "j2k", "j2c", "pcx", "sgi", "icns", "wbmp", "xpm", "ora",
-            "otb", "xbm",
-        ] {
+        for text in ["heic", "heif"] {
             let args = parse_from(&["image-convert", "-i", ".", "-f", text]);
             assert!(args.format.is_decode_only(), "{text} 应解析为仅解码格式");
         }
+    }
+
+    #[test]
+    fn jxl_target_is_writable() {
+        let args = parse_from(&["image-convert", "-i", ".", "-f", "jxl"]);
+        assert!(!args.format.is_decode_only());
     }
 }
