@@ -1,5 +1,7 @@
 use crate::format::format_unix_timestamp_compact;
 use anyhow::{Context, Result};
+use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -61,9 +63,68 @@ pub fn now_unix_seconds() -> u64 {
         .map_or(0, |elapsed| elapsed.as_secs())
 }
 
+/// 处理同批次内的输出冲突：desired 已被占用时追加 -1、-2 后缀。
+///
+/// 只解决批次内冲突，不检查磁盘上是否已存在；是否跳过已存在文件由调用方决定。
+/// 典型用法：主线程先为整批预留输出路径，再分发并发任务。
+#[must_use]
+pub fn collision_free(desired: &Path, taken: &mut HashSet<PathBuf>) -> PathBuf {
+    if taken.insert(desired.to_path_buf()) {
+        return desired.to_path_buf();
+    }
+
+    let stem = desired.file_stem().unwrap_or(OsStr::new(""));
+    let extension = desired.extension().unwrap_or(OsStr::new(""));
+    let mut suffix = 1u32;
+    loop {
+        // 无扩展名时不追加尾点。
+        let candidate = if extension.is_empty() {
+            desired.with_file_name(format!("{}-{suffix}", stem.display()))
+        } else {
+            desired.with_file_name(format!(
+                "{}-{suffix}.{}",
+                stem.display(),
+                extension.display()
+            ))
+        };
+        if taken.insert(candidate.clone()) {
+            return candidate;
+        }
+        suffix += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_collision_free_keeps_first_and_suffixes_rest() {
+        let mut taken = HashSet::new();
+        let desired = Path::new("out/photo.webp");
+
+        assert_eq!(collision_free(desired, &mut taken), *desired);
+        assert_eq!(
+            collision_free(desired, &mut taken),
+            PathBuf::from("out/photo-1.webp")
+        );
+        assert_eq!(
+            collision_free(desired, &mut taken),
+            PathBuf::from("out/photo-2.webp")
+        );
+    }
+
+    #[test]
+    fn batch_collision_free_handles_extensionless_names() {
+        let mut taken = HashSet::new();
+        let desired = Path::new("out/movie");
+
+        assert_eq!(collision_free(desired, &mut taken), *desired);
+        assert_eq!(
+            collision_free(desired, &mut taken),
+            PathBuf::from("out/movie-1")
+        );
+    }
 
     #[test]
     fn final_name_uses_injected_timestamp() {
