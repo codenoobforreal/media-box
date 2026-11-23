@@ -5,12 +5,30 @@ edition.workspace = true
 license.workspace = true
 description = "纯 Rust 的图片批量格式转换工具"
 
+[features]
+# 默认全开：产品定位是能力完备的转换工具；全关可编译出纯 image 内置的最小构建。
+default = ["jxl", "heif", "jp2", "extras"]
+jxl = ["dep:jxl-oxide"]
+heif = ["dep:heif-oxide"]
+jp2 = ["dep:hayro-jpeg2000"]
+extras = ["dep:image-extras"]
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true
 media-box-core.workspace = true
 thiserror.workspace = true
+# 以下均为纯 Rust、宽松许可，接入 image 0.25 的解码 hook（核验时点 2026-11-23）。
+jxl-oxide = { version = "0.12", optional = true, features = ["image"] } # MIT OR Apache-2.0
+heif-oxide = { version = "0.2", optional = true } # MIT OR Apache-2.0
+hayro-jpeg2000 = { version = "0.5", optional = true } # Apache-2.0 OR MIT
+image-extras = { version = "0.1", optional = true } # MIT OR Apache-2.0
+
+[dev-dependencies]
+# 仅测试用：JXL 无损编码样本生成。
+zune-jpegxl = "0.5" # MIT OR Apache-2.0 OR Zlib
+zune-core = "0.5" # MIT OR Apache-2.0 OR Zlib
 
 [lints]
 workspace = true
