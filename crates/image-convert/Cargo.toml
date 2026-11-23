@@ -1,0 +1,15 @@
+[package]
+name = "image-convert"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "纯 Rust 的图片批量格式转换工具"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+image.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

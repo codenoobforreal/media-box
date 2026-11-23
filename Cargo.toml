@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/media-box", "crates/media-box-core"]
+members = ["crates/media-box", "crates/media-box-core", "crates/image-convert"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,6 +13,7 @@ clap = { version = "4", features = ["cargo", "derive"] }
 crossterm = "0"
 ctrlc = "3"
 thiserror = "2"
+image = "0.25"
 media-box-core = { path = "crates/media-box-core" }
 
 [workspace.lints.clippy]
