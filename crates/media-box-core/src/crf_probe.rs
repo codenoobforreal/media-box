@@ -1,3 +1,5 @@
+//! CRF 搜索的测量实现：用 ffmpeg + libvmaf 在场景样本上测分，并适配搜索日志。
+
 use crate::crf_search::{SampleMeasurer, SearchJournal};
 use crate::encoder::{Av1EncodeArgs, BitrateReduceSettings};
 use crate::interrupter::{Cancelled, Canceller};
@@ -24,6 +26,7 @@ pub struct ProbeContextParams<'a> {
     pub reporter: &'a Reporter,
 }
 
+/// 一次 CRF 搜索所需的全部输入与状态。
 pub struct ProbeContext<'a> {
     input: &'a Path,
     base_output: &'a Path,
@@ -36,6 +39,7 @@ pub struct ProbeContext<'a> {
 }
 
 impl<'a> ProbeContext<'a> {
+    /// 由入参集合构造上下文。
     pub fn new(params: ProbeContextParams<'a>) -> Self {
         let ProbeContextParams {
             input,
@@ -61,6 +65,7 @@ impl<'a> ProbeContext<'a> {
     }
 }
 
+/// 采样测分器：把每个场景样本编码后用 libvmaf 测分，实现 SampleMeasurer。
 pub struct SampleProbe<'a> {
     context: ProbeContext<'a>,
     filters: [String; 2],
@@ -70,6 +75,7 @@ pub struct SampleProbe<'a> {
 }
 
 impl<'a> SampleProbe<'a> {
+    /// 由上下文构造测分器，预生成同规格 / 全规格两套滤镜图。
     pub fn new(context: ProbeContext<'a>) -> Self {
         let settings = context.settings;
         let temp_stem = context
@@ -266,11 +272,13 @@ impl SampleMeasurer for SampleProbe<'_> {
     }
 }
 
+/// 搜索日志适配器：把轮次、备注与警告转发给 Reporter。
 pub struct Journal<'a> {
     reporter: &'a Reporter,
 }
 
 impl<'a> Journal<'a> {
+    /// 用 Reporter 构造日志适配器。
     pub fn new(reporter: &'a Reporter) -> Self {
         Self { reporter }
     }
@@ -293,6 +301,7 @@ impl SearchJournal for Journal<'_> {
     }
 }
 
+/// 搜索过程中编码出的临时样本文件，Drop 时删除。
 struct TempSampleFile {
     path: PathBuf,
 }

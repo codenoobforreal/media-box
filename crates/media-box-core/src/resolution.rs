@@ -1,3 +1,5 @@
+//! 分辨率枚举、解析与像素数比较。
+
 use anyhow::{Result, bail};
 use std::fmt;
 use std::str::FromStr;

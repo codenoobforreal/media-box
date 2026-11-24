@@ -1,8 +1,11 @@
+//! 分辨率 / 帧率缩减设置与 AV1 编码参数，拼接 -vf 滤镜链。
+
 use crate::resolution::Resolution;
 use crate::value::{ConstantRateFactor, EncoderPreset, FilmGrain, FrameRatePerSecond};
 use std::fmt::Write;
 use std::process::Command;
 
+/// 分辨率缩减设置：用户目标分辨率（可为 None 表示跟随源）与源分辨率。
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct ResolutionDownScaling {
     user_resolution: Option<Resolution>,
@@ -10,6 +13,7 @@ pub struct ResolutionDownScaling {
 }
 
 impl ResolutionDownScaling {
+    /// 构造分辨率缩减设置。
     pub fn new(user_resolution: Option<Resolution>, source_resolution: Resolution) -> Self {
         Self {
             user_resolution,
@@ -17,6 +21,7 @@ impl ResolutionDownScaling {
         }
     }
 
+    /// 实际输出分辨率。
     pub fn target_resolution(self) -> Resolution {
         self.user_resolution.unwrap_or(self.source_resolution)
     }
@@ -44,6 +49,7 @@ impl ResolutionDownScaling {
     }
 }
 
+/// 帧率缩减设置：用户上限（可为 None）与源帧率。
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub struct FrameRateReduce {
     user_fps: Option<FrameRatePerSecond>,
@@ -51,6 +57,7 @@ pub struct FrameRateReduce {
 }
 
 impl FrameRateReduce {
+    /// 构造帧率缩减设置。
     pub fn new(user_fps: Option<FrameRatePerSecond>, source_fps: FrameRatePerSecond) -> Self {
         Self {
             user_fps,
@@ -63,6 +70,7 @@ impl FrameRateReduce {
     }
 }
 
+/// 视频降码设置：分辨率与帧率的组合。
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct BitrateReduceSettings {
     resolution: ResolutionDownScaling,
@@ -70,6 +78,7 @@ pub struct BitrateReduceSettings {
 }
 
 impl BitrateReduceSettings {
+    /// 构造降码设置。
     pub fn new(resolution: ResolutionDownScaling, frame_rate: FrameRateReduce) -> Self {
         Self {
             resolution,
@@ -77,18 +86,22 @@ impl BitrateReduceSettings {
         }
     }
 
+    /// 源分辨率。
     pub fn input_resolution(self) -> Resolution {
         self.resolution.source_resolution
     }
 
+    /// 输出分辨率（可能等于源分辨率）。
     pub fn output_resolution(self) -> Resolution {
         self.resolution.target_resolution()
     }
 
+    /// 源帧率。
     pub fn input_fps(self) -> FrameRatePerSecond {
         self.frame_rate.source_fps
     }
 
+    /// 实际输出帧率。
     pub fn target_fps(self) -> FrameRatePerSecond {
         self.frame_rate.target_fps().unwrap_or(self.input_fps())
     }
@@ -113,11 +126,13 @@ impl BitrateReduceSettings {
         (!filter.is_empty()).then_some(filter)
     }
 
+    /// 是否发生降码（分辨率或帧率至少一项被削减）。
     pub fn is_reduced(self) -> bool {
         self.resolution.scale_filter().is_some() || self.frame_rate.target_fps().is_some()
     }
 }
 
+/// AV1 编码参数：preset、CRF 与 film-grain 强度。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Av1EncodeArgs {
     preset: EncoderPreset,
@@ -126,6 +141,7 @@ pub struct Av1EncodeArgs {
 }
 
 impl Av1EncodeArgs {
+    /// 构造编码参数。
     pub fn new(preset: EncoderPreset, crf: ConstantRateFactor, film_grain: FilmGrain) -> Self {
         Self {
             preset,
@@ -134,6 +150,7 @@ impl Av1EncodeArgs {
         }
     }
 
+    /// 生成 -svtav1-params 的值。
     pub fn svt_av1_params(self) -> String {
         format!(
             "tune=5:keyint=-1:qp-scale-compress-strength=1:film-grain={}",

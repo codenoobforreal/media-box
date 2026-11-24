@@ -1,3 +1,5 @@
+//! CRF 搜索状态机：在单调曲线上用「二分 + 割线」混合逼近目标 VMAF。算法推导见根目录 AGENTS.md。
+
 use crate::resolution::Resolution;
 use crate::value::{ConstantRateFactor, VmafScore};
 use crate::vmaf::VmafMeasureMode;

@@ -1,3 +1,5 @@
+//! 用 ffprobe 读取源视频的分辨率、帧率、时长与体积。
+
 use crate::byte_size::ByteSize;
 use crate::interrupter::Canceller;
 use crate::process::{self, Stream};

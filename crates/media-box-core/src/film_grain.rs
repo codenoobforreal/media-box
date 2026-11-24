@@ -1,3 +1,5 @@
+//! film-grain 强度计算：汇总各样本的 YDIF 代表值。
+
 use crate::interrupter::{Cancelled, Canceller};
 use crate::report::Reporter;
 use crate::scene_sampler::SceneSample;

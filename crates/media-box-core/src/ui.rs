@@ -1,3 +1,5 @@
+//! 终端仪表盘渲染：阶段进度、当前文件与结束汇总。
+
 use anyhow::{Result, anyhow};
 use crossterm::cursor::MoveTo;
 use crossterm::queue;

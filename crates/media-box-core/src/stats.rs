@@ -1,3 +1,6 @@
+//! 轻量统计工具。
+
+/// 求中位数。用 total_cmp 提供全序，含 NaN 的输入也不 panic。
 pub fn f64_median(v: &mut [f64]) -> Option<f64> {
     let n = v.len();
 

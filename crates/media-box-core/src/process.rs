@@ -1,3 +1,5 @@
+//! 子进程输出读取：按流分发行、限制缓冲，带取消轮询。
+
 use crate::interrupter::{Cancelled, Canceller};
 use anyhow::{Context, Result};
 use std::io::{BufReader, Read};
@@ -15,6 +17,7 @@ const MAX_STDERR_LINES: usize = 200;
 /// 单行字节上限；超长行被截断，避免 read_until 让缓冲无限增长。
 const MAX_LINE_BYTES: usize = 64 * 1024;
 
+/// 子进程输出的流。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stream {
     Stdout,
@@ -26,6 +29,7 @@ struct Line {
     text: String,
 }
 
+/// 子进程执行结果：退出状态与保留的 stderr 行。
 #[derive(Debug)]
 pub struct ProcessOutput {
     status: ExitStatus,
@@ -33,14 +37,17 @@ pub struct ProcessOutput {
 }
 
 impl ProcessOutput {
+    /// 退出码是否为 0。
     pub fn success(&self) -> bool {
         self.status.success()
     }
 
+    /// 保留的 stderr 行（上限 MAX_STDERR_LINES）。
     pub fn stderr_lines(&self) -> &[String] {
         &self.stderr_lines
     }
 
+    /// 汇总 stderr 中的错误行，供用户可见的报错使用。
     pub fn failure_message(&self) -> String {
         let mut error_lines: Vec<&str> = Vec::new();
 

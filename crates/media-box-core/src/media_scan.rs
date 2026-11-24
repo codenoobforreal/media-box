@@ -1,3 +1,5 @@
+//! 按扩展名递归收集媒体文件：跳过符号链接、绝对路径去重。
+
 use anyhow::{Context, Result};
 use std::cmp;
 use std::collections::{HashMap, HashSet};

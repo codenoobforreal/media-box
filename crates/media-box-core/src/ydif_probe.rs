@@ -1,3 +1,5 @@
+//! 用 signalstats 探测样本的 YDIF 值序列。
+
 use crate::interrupter::Canceller;
 use crate::process;
 use crate::ydif_stats::YdifValueSeries;
@@ -6,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
+/// 对指定时间窗执行 signalstats YDIF 探测。
 pub struct YdifProbe {
     input_video_path: PathBuf,
     sample_window_start_time: Duration,
@@ -13,6 +16,7 @@ pub struct YdifProbe {
 }
 
 impl YdifProbe {
+    /// 构造探测器，限定采样窗口。
     pub fn new(
         input_video_path: PathBuf,
         sample_window_start_time: Duration,
@@ -25,6 +29,7 @@ impl YdifProbe {
         }
     }
 
+    /// 组装 signalstats 探测命令。
     pub fn build_ffmpeg_command(&self) -> Command {
         let mut ffmpeg_command = Command::new("ffmpeg");
         ffmpeg_command
@@ -53,6 +58,7 @@ impl YdifProbe {
         ffmpeg_command
     }
 
+    /// 运行探测并返回 YDIF 值序列。
     pub fn run(&self, canceller: &Canceller) -> Result<YdifValueSeries> {
         let mut ydif_values = Vec::new();
 

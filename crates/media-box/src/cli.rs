@@ -1,9 +1,12 @@
+//! media-box 的命令行定义：子命令、参数表与解析。
+
 use clap::{Arg, ArgAction, ArgMatches, Command, command, value_parser};
 use media_box_core::compressor::CompressOptions;
 use media_box_core::resolution::Resolution;
 use media_box_core::value::{EncoderPreset, FrameRatePerSecond, VmafScore};
 use std::path::PathBuf;
 
+/// 解析后的 video-compress 参数。
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Clone)]
 pub struct CliArgs {

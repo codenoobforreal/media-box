@@ -1,3 +1,5 @@
+//! 正式编码：组装 ffmpeg 命令、解析进度并执行。
+
 use crate::encoder::{Av1EncodeArgs, BitrateReduceSettings};
 use crate::interrupter::Canceller;
 use crate::process::{self, Stream};
@@ -13,6 +15,7 @@ use std::time::{Duration, Instant};
 
 const PROGRESS_PUBLISH_INTERVAL: Duration = Duration::from_secs(1);
 
+/// 组装正式编码的 ffmpeg 命令（含 -progress pipe:1 与降码滤镜）。
 pub fn build_command(
     input: &Path,
     output: &Path,
@@ -44,6 +47,7 @@ pub fn build_command(
     command
 }
 
+/// 执行编码并解析进度；失败或取消时删除半成品输出，成功返回输出字节数。
 pub fn run(
     command: Command,
     output_path: &Path,

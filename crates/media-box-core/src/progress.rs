@@ -1,3 +1,5 @@
+//! 解析 ffmpeg -progress 输出，计算百分比与 ETA，并按最小变化量节流。
+
 use std::fmt;
 use std::time::Duration;
 
@@ -5,6 +7,7 @@ use crate::format::format_duration_fixed;
 
 pub const MIN_DELTA_PERCENT: f32 = 0.1;
 
+/// 一次进度快照：完成百分比、已用时间与预计剩余时间。
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct ProgressSnapshot {
     percentage: f32,
@@ -13,6 +16,7 @@ pub struct ProgressSnapshot {
 }
 
 impl ProgressSnapshot {
+    /// 构造进度快照。
     pub fn new(percentage: f32, elapsed: Duration, eta: Option<Duration>) -> Self {
         Self {
             percentage,
@@ -48,14 +52,17 @@ impl ProgressSnapshot {
             && (current_percentage - prev_percentage) >= min_delta_percentage
     }
 
+    /// 完成百分比（0.0~100.0）。
     pub fn percentage(&self) -> f32 {
         self.percentage
     }
 
+    /// 已用时间。
     pub fn elapsed(&self) -> Duration {
         self.elapsed
     }
 
+    /// 预计剩余时间，无法估算时为 None。
     pub fn eta(&self) -> Option<Duration> {
         self.eta
     }
@@ -79,6 +86,7 @@ impl fmt::Display for ProgressSnapshot {
     }
 }
 
+/// 按最小变化量节流的进度发射器，避免百分比小幅抖动导致刷屏。
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct ProgressEmitter {
     last_emitted: Option<ProgressSnapshot>,
@@ -87,6 +95,7 @@ pub struct ProgressEmitter {
 }
 
 impl ProgressEmitter {
+    /// 构造发射器；last_emitted 用于延续上一次已发射的进度。
     pub fn new(
         last_emitted: Option<ProgressSnapshot>,
         total_duration: Duration,
@@ -99,6 +108,7 @@ impl ProgressEmitter {
         }
     }
 
+    /// 用最新样本更新并返回需要发射的快照；无需发射时返回 None。
     pub fn update(
         &mut self,
         sample: FfmpegProgressSample,
@@ -115,6 +125,7 @@ impl ProgressEmitter {
     }
 }
 
+/// 增量解析 ffmpeg -progress 输出的解析器，在遇到 progress 行时产出样本。
 #[derive(Default)]
 pub struct FfmpegProgressLineParser {
     out_time_ms: Option<u64>,
@@ -122,6 +133,7 @@ pub struct FfmpegProgressLineParser {
 }
 
 impl FfmpegProgressLineParser {
+    /// 喂入一行；返回 Some 表示该行结束了一条进度样本。
     pub fn push_line(&mut self, line: &str) -> Option<FfmpegProgressSample> {
         let trim_line = line.trim();
 
@@ -159,11 +171,13 @@ impl FfmpegProgressLineParser {
         }
     }
 
+    /// 最近一次读到的 total_size（字节）。
     pub fn total_size_bytes(&self) -> Option<u64> {
         self.total_size_bytes
     }
 }
 
+/// 一条 ffmpeg 进度样本，内部把外部的 out_time_ms 按微秒解释。
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct FfmpegProgressSample {
     /// 外部 ffmpeg key 仍然是 "out_time_ms"；内部字段明确按微秒解释
@@ -171,10 +185,12 @@ pub struct FfmpegProgressSample {
 }
 
 impl FfmpegProgressSample {
+    /// 由已换算的微秒时间构造样本。
     pub fn new(out_time_us: u64) -> Self {
         Self { out_time_us }
     }
 
+    /// 完成百分比；total_duration 为 0 时返回 0.0。
     pub fn percentage(&self, total_duration: Duration) -> f32 {
         if total_duration.is_zero() {
             return 0.0;
@@ -191,6 +207,7 @@ impl FfmpegProgressSample {
         }
     }
 
+    /// 按平均速度估算剩余时间；无法估算时为 None。
     pub fn eta(&self, total_duration: Duration, elapsed: Duration) -> Option<Duration> {
         if total_duration.is_zero() {
             return None;

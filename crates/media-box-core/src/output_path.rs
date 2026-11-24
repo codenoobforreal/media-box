@@ -1,3 +1,5 @@
+//! 输出路径推导：基名、带时间戳的最终名与同批冲突去重。
+
 use crate::format::format_unix_timestamp_compact;
 use anyhow::{Context, Result};
 use std::collections::HashSet;

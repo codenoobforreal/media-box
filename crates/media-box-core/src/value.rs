@@ -1,3 +1,5 @@
+//! 数值 newtype（CRF、preset、VMAF、帧率、film-grain）及类型化解析。
+
 use std::str::FromStr;
 
 /// 各数值 newtype 在构造与解析阶段产生的错误。
@@ -46,12 +48,14 @@ fn ensure_range(value: f64, min: f64, max: f64, what: &'static str) -> Result<()
     }
 }
 
+/// CRF 值，内部以 0.25 为一格存储。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConstantRateFactor(u16);
 
 impl ConstantRateFactor {
     const STEPS_PER_UNIT: f64 = 4.0;
 
+    /// 构造 CRF 值，要求在 1~70 且为 0.25 的整数倍。
     pub fn new(value: f64) -> Result<Self, ValueError> {
         ensure_range(value, 1.0, 70.0, "CRF 值")?;
 
@@ -68,11 +72,13 @@ impl ConstantRateFactor {
         Self((value.clamp(1.0, 70.0) * Self::STEPS_PER_UNIT).round() as u16)
     }
 
+    /// 返回以 0.25 为一格的浮点 CRF 值。
     pub fn as_f64(self) -> f64 {
         f64::from(self.0) / Self::STEPS_PER_UNIT
     }
 }
 
+/// 目标 VMAF 分数（v1 体系，1~100）。
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct VmafScore(f64);
 
@@ -93,6 +99,7 @@ impl Default for VmafScore {
     }
 }
 
+/// film-grain 强度（0~50）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FilmGrain(u8);
 
@@ -113,6 +120,7 @@ impl Default for FilmGrain {
     }
 }
 
+/// 帧率（帧/秒）。
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct FrameRatePerSecond(f64);
 
@@ -132,6 +140,7 @@ impl FrameRatePerSecond {
     }
 }
 
+/// SVT-AV1 preset（0~13）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EncoderPreset(u8);
 

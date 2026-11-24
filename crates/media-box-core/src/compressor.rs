@@ -1,3 +1,5 @@
+//! 压缩流水线编排：扫描输入、按阶段处理每个视频、处理取消。
+
 use crate::byte_size::ByteSize;
 use crate::crf_probe::{Journal, ProbeContext, ProbeContextParams, SampleProbe};
 use crate::crf_search::CrfSearcher;

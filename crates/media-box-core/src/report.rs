@@ -1,3 +1,5 @@
+//! 流水线阶段定义与成功 / 失败 / 警告报告模型。
+
 use crate::byte_size::ByteSize;
 use crate::format::format_duration_fixed;
 use crate::progress::ProgressSnapshot;
@@ -36,6 +38,7 @@ impl Stage {
     }
 }
 
+/// 单个视频的压缩结果摘要：体积变化、耗时与实际执行的 ffmpeg 命令。
 #[derive(Debug, Clone)]
 pub struct SuccessReport {
     src_size: ByteSize,
@@ -46,6 +49,7 @@ pub struct SuccessReport {
 }
 
 impl SuccessReport {
+    /// 构造成功报告。
     pub fn new(
         src_size: ByteSize,
         output_size: ByteSize,
@@ -97,6 +101,7 @@ impl fmt::Display for SuccessReport {
     }
 }
 
+/// 流水线事件：阶段推进、进度、结果与汇总，由 Reporter 发送给渲染方。
 pub enum Event {
     JobStarted(PathBuf),
     Stage {
@@ -118,20 +123,24 @@ pub enum Event {
     Finished,
 }
 
+/// 事件发送方：把压缩过程中的状态变化发给 UI。
 #[derive(Clone)]
 pub struct Reporter {
     sender: Sender<Event>,
 }
 
 impl Reporter {
+    /// 用事件通道构造 Reporter。
     pub fn new(sender: Sender<Event>) -> Self {
         Self { sender }
     }
 
+    /// 通知开始处理某个文件。
     pub fn job_started(&self, path: &Path) {
         self.send(Event::JobStarted(path.to_path_buf()));
     }
 
+    /// 切换当前阶段（不带附加说明）。
     pub fn stage(&self, stage: Stage) {
         self.send(Event::Stage {
             stage,
@@ -139,6 +148,7 @@ impl Reporter {
         });
     }
 
+    /// 切换当前阶段并附带说明文字。
     pub fn stage_detail(&self, stage: Stage, detail: impl Into<String>) {
         self.send(Event::Stage {
             stage,
@@ -151,10 +161,12 @@ impl Reporter {
         self.send(Event::Note(message.into()));
     }
 
+    /// 上报一次进度快照。
     pub fn progress(&self, snapshot: ProgressSnapshot) {
         self.send(Event::Progress(snapshot));
     }
 
+    /// 上报一条警告（不中断处理）。
     pub fn warning(&self, message: impl Into<String>) {
         self.send(Event::Warning(message.into()));
     }

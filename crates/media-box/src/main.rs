@@ -1,3 +1,5 @@
+//! media-box 入口：解析参数并启动压缩流水线。
+
 mod cli;
 
 use media_box_core::compressor::{CompressOptions, Compressor};

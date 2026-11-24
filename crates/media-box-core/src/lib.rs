@@ -1,3 +1,5 @@
+//! media-box 生态核心库：媒体扫描、输出路径、VMAF 目标搜索与 SVT-AV1 编码。库不依赖 clap，由二进制层映射 CLI 参数。
+
 pub mod byte_size;
 pub mod compressor;
 pub mod crf_probe;

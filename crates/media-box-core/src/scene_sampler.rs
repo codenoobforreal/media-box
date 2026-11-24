@@ -1,3 +1,5 @@
+//! 由场景切点规划用于 CRF 搜索的样本区间。
+
 use crate::scene_detect::SceneCutDetectionRecord;
 use anyhow::{Result, bail};
 use std::cmp;
@@ -15,6 +17,7 @@ impl SceneTimeSpan {
     }
 }
 
+/// 一个用于搜索的样本区间：起点与时长。
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct SceneSample {
     start: Duration,
@@ -22,19 +25,23 @@ pub struct SceneSample {
 }
 
 impl SceneSample {
+    /// 构造样本区间。
     pub fn new(start: Duration, duration: Duration) -> Self {
         Self { start, duration }
     }
 
+    /// 样本起点。
     pub fn start(self) -> Duration {
         self.start
     }
 
+    /// 样本时长。
     pub fn duration(self) -> Duration {
         self.duration
     }
 }
 
+/// 场景样本规划器：由切点生成至多 maximum_sample_count 个样本，并提供固定比例回退。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SceneSampler {
     minimum_scene_duration: Duration,
@@ -72,10 +79,12 @@ impl SceneSampler {
         Ok(())
     }
 
+    /// 是否需要先做场景检测（短视频直接走固定比例回退）。
     pub fn needs_scene_detection(&self, total_video_duration: Duration) -> bool {
         total_video_duration > self.short_video_threshold()
     }
 
+    /// 无可用场景时的固定比例回退采样。
     pub fn fallback_samples(&self, total_video_duration: Duration) -> Vec<SceneSample> {
         if total_video_duration <= self.short_video_threshold() {
             self.single_fallback_sample(total_video_duration)

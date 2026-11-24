@@ -1,13 +1,17 @@
+//! YDIF 序列统计、置信度判定与 film-grain 强度映射。
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Stats {
     mean: f64,
     standard_deviation: f64,
 }
 
+/// 一条样本的 YDIF 值序列，提供统计、置信度判定与代表值映射。
 #[derive(Debug, PartialEq, Clone)]
 pub struct YdifValueSeries(Vec<f64>);
 
 impl YdifValueSeries {
+    /// 由探测到的 YDIF 值构造序列。
     pub fn from_values(values: Vec<f64>) -> Self {
         Self(values)
     }
@@ -36,6 +40,7 @@ impl YdifValueSeries {
         ((stats.mean / 15.0).min(1.0) * 0.2 + 0.5).clamp(0.5, 0.7)
     }
 
+    /// 依据变异系数判定该序列的置信度。
     pub fn confidence(&self) -> Confidence {
         let stats = self.stats();
 
@@ -47,6 +52,7 @@ impl YdifValueSeries {
         }
     }
 
+    /// 统计量是否可算（空序列或出现非有限值时为 false）。
     pub fn has_computable_statistics(&self) -> bool {
         if self.0.is_empty() {
             return false;
@@ -57,6 +63,7 @@ impl YdifValueSeries {
             && Self::acceptable_coefficient_of_variation(stats).is_finite()
     }
 
+    /// YDIF 均值。
     pub fn mean(&self) -> f64 {
         self.stats().mean
     }
@@ -70,6 +77,7 @@ pub enum Confidence {
     Low,
 }
 
+/// 把 YDIF 代表值映射为 film-grain 强度档位（0 / 4 / 8 / 12 / 15）。
 pub fn film_grain_strength(representative_ydif: f64) -> u8 {
     match representative_ydif {
         value if value < 1.0 => 0,

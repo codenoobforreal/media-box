@@ -1,3 +1,5 @@
+//! Ctrl+C 取消：区分「用户取消」与普通失败，支持二次强退。
+
 use anyhow::{Context, Result};
 use std::process;
 use std::sync::{Arc, Mutex};
@@ -22,12 +24,14 @@ struct CancelState {
     second_press_armed: bool,
 }
 
+/// 取消状态句柄，可在信号线程与工作线程间共享。
 #[derive(Debug, Default)]
 pub struct Canceller {
     state: Mutex<CancelState>,
 }
 
 impl Canceller {
+    /// 构造取消句柄（等价于 Default）。
     pub fn new() -> Self {
         Self::default()
     }
@@ -51,6 +55,7 @@ impl Canceller {
         false
     }
 
+    /// 直接置位取消标记，供非 Ctrl+C 路径使用。
     pub fn cancel(&self) {
         self.state
             .lock()
@@ -58,6 +63,7 @@ impl Canceller {
             .cancelled = true;
     }
 
+    /// 是否已被取消。
     pub fn is_cancelled(&self) -> bool {
         self.state
             .lock()
@@ -65,6 +71,7 @@ impl Canceller {
             .cancelled
     }
 
+    /// 已取消则返回 Cancelled，否则返回 Ok。
     pub fn check(&self) -> Result<(), Cancelled> {
         if self.is_cancelled() {
             Err(Cancelled)

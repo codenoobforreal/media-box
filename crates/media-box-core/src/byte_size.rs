@@ -1,13 +1,18 @@
+//! 字节数的人类可读格式化。
+
 use std::fmt;
 
+/// 字节数，显示时按 1024 进制自动换算为 KiB / MiB 等。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ByteSize(u64);
 
 impl ByteSize {
+    /// 由原始字节数构造。
     pub fn b(bytes: u64) -> Self {
         Self(bytes)
     }
 
+    /// 返回原始字节数。
     pub fn as_u64(self) -> u64 {
         self.0
     }

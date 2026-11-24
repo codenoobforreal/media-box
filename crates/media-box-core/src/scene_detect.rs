@@ -1,9 +1,12 @@
+//! 用 ffmpeg scdet 检测场景切点并解析日志。
+
 use crate::interrupter::Canceller;
 use crate::process;
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// 一条场景切点记录：切点分数与切点时间（秒）。
 #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub struct SceneCutDetectionRecord {
     scene_change_score: f64,
@@ -11,6 +14,7 @@ pub struct SceneCutDetectionRecord {
 }
 
 impl SceneCutDetectionRecord {
+    /// 构造切点记录。
     pub fn new(scene_change_score: f64, scene_change_time_seconds: f64) -> Self {
         Self {
             scene_change_score,
@@ -18,27 +22,32 @@ impl SceneCutDetectionRecord {
         }
     }
 
+    /// 切点分数。
     pub fn scene_change_score(self) -> f64 {
         self.scene_change_score
     }
 
+    /// 切点时间（秒）。
     pub fn scene_change_time_seconds(self) -> f64 {
         self.scene_change_time_seconds
     }
 }
 
+/// 对单个视频执行场景切点检测。
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub struct SceneCutDetector {
     input_video_path: PathBuf,
 }
 
 impl SceneCutDetector {
+    /// 对指定视频构造检测器。
     pub fn new(input_video_path: &Path) -> Self {
         Self {
             input_video_path: input_video_path.to_path_buf(),
         }
     }
 
+    /// 运行 ffmpeg scdet 并返回按时间升序的切点记录。
     pub fn detect_scene_cuts(&self, canceller: &Canceller) -> Result<Vec<SceneCutDetectionRecord>> {
         let mut records = Vec::new();
 

@@ -1,3 +1,5 @@
+//! libvmaf 滤镜图构造：同规格 / 全规格两种测量口径。
+
 use crate::encoder::BitrateReduceSettings;
 use crate::resolution::Resolution;
 use std::sync::LazyLock;
@@ -23,6 +25,7 @@ impl VmafMeasureMode {
     }
 }
 
+/// 按分辨率选择 libvmaf 模型名：4K 用 2160 模型，其余用 3d0h。
 fn model(resolution: Resolution) -> &'static str {
     if resolution.pixels() >= Resolution::Uhd.pixels() {
         "vmaf_v1.0.16_1d5h_2160"

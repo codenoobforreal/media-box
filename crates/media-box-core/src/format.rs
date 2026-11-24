@@ -1,5 +1,8 @@
+//! 时长与 UTC 时间戳的格式化，不引入时间库。
+
 use std::time::Duration;
 
+/// 把时长格式化为 dd:hh:mm:ss，亚秒被丢弃。
 pub fn format_duration_fixed(duration: Duration) -> String {
     let total_secs = duration.as_secs();
     let days = total_secs / 86_400;
