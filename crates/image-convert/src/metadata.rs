@@ -73,9 +73,15 @@ mod tests {
     #[test]
     fn parses_metadata_modes() {
         assert_eq!("keep".parse::<MetadataMode>().unwrap(), MetadataMode::Keep);
-        assert_eq!("strip".parse::<MetadataMode>().unwrap(), MetadataMode::Strip);
+        assert_eq!(
+            "strip".parse::<MetadataMode>().unwrap(),
+            MetadataMode::Strip
+        );
         assert_eq!("list".parse::<MetadataMode>().unwrap(), MetadataMode::List);
-        assert_eq!(" KEEP ".parse::<MetadataMode>().unwrap(), MetadataMode::Keep);
+        assert_eq!(
+            " KEEP ".parse::<MetadataMode>().unwrap(),
+            MetadataMode::Keep
+        );
     }
 
     #[test]

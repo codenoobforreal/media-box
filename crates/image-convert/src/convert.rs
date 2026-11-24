@@ -3,11 +3,11 @@ use crate::format::{IMAGE_EXTENSIONS, TargetFormat};
 use crate::metadata::{Metadata, MetadataMode};
 use crate::output_path::output_path;
 use anyhow::{Context, Result};
-use image::codecs::avif::AvifEncoder;
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-use image::codecs::tiff::TiffEncoder;
-use image::{ColorType, DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder, ImageFormat};
+use image::{
+    ColorType, DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder, ImageFormat,
+};
 use media_box_core::media_scan::{ScannedFile, collect_files};
 use media_box_core::output_path::collision_free;
 use std::collections::HashSet;
@@ -16,9 +16,6 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-/// AVIF 编码速度档：1 最慢、质量最好，10 最快。取 ravif/cavif 的默认档 4。
-const AVIF_SPEED: u8 = 4;
 
 /// 批量转换选项。
 #[non_exhaustive]
@@ -303,9 +300,8 @@ fn convert_one(source: &Path, target: &Path, options: &ConvertOptions) -> Result
 
 /// 把动态图像编码为内存字节。
 ///
-/// JPEG/AVIF 使用可配置质量的编码器；PNG 在 optimize 时启用最高压缩，
-/// 并在 keep 模式透传 EXIF/ICC；TIFF 在 keep 模式透传 ICC；
-/// JXL 走 zune-jpegxl；其余格式走通用写出。
+/// JPEG 使用可配置质量的编码器；PNG 在 optimize 时启用最高压缩，
+/// 并在 keep 模式透传 EXIF/ICC；其余格式走通用写出。
 fn encode_to_buffer(
     image: &DynamicImage,
     format: TargetFormat,
@@ -318,16 +314,6 @@ fn encode_to_buffer(
         TargetFormat::Standard(ImageFormat::Jpeg) => {
             JpegEncoder::new_with_quality(&mut cursor, quality).encode_image(image)?;
         }
-        TargetFormat::Standard(ImageFormat::Avif) => {
-            let (width, height) = image.dimensions();
-            let rgba = image.to_rgba8();
-            AvifEncoder::new_with_speed_quality(&mut cursor, AVIF_SPEED, quality).write_image(
-                rgba.as_raw(),
-                width,
-                height,
-                ExtendedColorType::Rgba8,
-            )?;
-        }
         TargetFormat::Standard(ImageFormat::Png) => {
             let (width, height) = image.dimensions();
             let (color, data) = pixel_buffer(image);
@@ -336,7 +322,8 @@ fn encode_to_buffer(
             } else {
                 CompressionType::Fast
             };
-            let mut encoder = PngEncoder::new_with_quality(&mut cursor, compression, FilterType::Adaptive);
+            let mut encoder =
+                PngEncoder::new_with_quality(&mut cursor, compression, FilterType::Adaptive);
             if let Some(exif) = &metadata.exif {
                 encoder.set_exif_metadata(exif.clone())?;
             }
@@ -345,93 +332,42 @@ fn encode_to_buffer(
             }
             encoder.write_image(&data, width, height, color)?;
         }
-        TargetFormat::Standard(ImageFormat::Tiff) => {
-            let (width, height) = image.dimensions();
-            let (color, data) = pixel_buffer(image);
-            let mut encoder = TiffEncoder::new(&mut cursor);
-            if let Some(icc) = &metadata.icc {
-                encoder.set_icc_profile(icc.clone())?;
-            }
-            encoder.write_image(&data, width, height, color)?;
-        }
         TargetFormat::Standard(format) => {
             image.write_to(&mut cursor, format)?;
         }
-        TargetFormat::Jxl => {
-            #[cfg(feature = "jxl")]
-            {
-                return encode_jxl(image, quality);
-            }
-            #[cfg(not(feature = "jxl"))]
-            anyhow::bail!("目标格式 jxl 在当前编译特性下不可写");
-        }
-        TargetFormat::DecodeOnly(_) => {
-            anyhow::bail!(
-                "目标格式 {} 仅支持解码，不能作为输出",
-                format.extension()
-            );
-        }
     }
     Ok(cursor.into_inner())
-}
-
-/// 用 zune-jpegxl 把图像无损编码为 JXL 字节（8bit 或 16bit 源均保持位深）。
-#[cfg(feature = "jxl")]
-fn encode_jxl(image: &DynamicImage, quality: u8) -> Result<Vec<u8>> {
-    use zune_core::options::EncoderOptions;
-    use zune_jpegxl::JxlSimpleEncoder;
-
-    let (width, height) = image.dimensions();
-    let (colorspace, depth, pixels) = jxl_pixel_layout(image);
-    // 文件级已并发，编码器内固定单线程，避免线程过度订阅。
-    let options = EncoderOptions::new(width as usize, height as usize, colorspace, depth)
-        .set_quality(quality)
-        .set_num_threads(1);
-
-    let encoder = JxlSimpleEncoder::new(&pixels, options);
-    let mut buffer = Vec::new();
-    encoder
-        .encode(&mut buffer)
-        .map_err(|error| anyhow::anyhow!("JXL 编码失败：{error}"))?;
-    Ok(buffer)
-}
-
-/// 整理 JXL 编码所需的（色彩空间、位深、原始像素字节）。
-///
-/// 8bit 源保持 8bit；16bit 源保持 16bit（按本机字节序展开为字节）；
-/// 浮点源归一化到 8bit。
-#[cfg(feature = "jxl")]
-fn jxl_pixel_layout(image: &DynamicImage) -> (zune_core::colorspace::ColorSpace, zune_core::bit_depth::BitDepth, Vec<u8>) {
-    use image::ColorType;
-    use zune_core::bit_depth::BitDepth;
-    use zune_core::colorspace::ColorSpace;
-
-    match image.color() {
-        ColorType::L8 => (ColorSpace::Luma, BitDepth::Eight, image.to_luma8().as_raw().to_vec()),
-        ColorType::La8 => (ColorSpace::LumaA, BitDepth::Eight, image.to_luma_alpha8().as_raw().to_vec()),
-        ColorType::Rgb8 => (ColorSpace::RGB, BitDepth::Eight, image.to_rgb8().as_raw().to_vec()),
-        ColorType::Rgba8 => (ColorSpace::RGBA, BitDepth::Eight, image.to_rgba8().as_raw().to_vec()),
-        ColorType::L16 => (ColorSpace::Luma, BitDepth::Sixteen, u16_native_bytes(image.to_luma16().as_raw())),
-        ColorType::La16 => (ColorSpace::LumaA, BitDepth::Sixteen, u16_native_bytes(image.to_luma_alpha16().as_raw())),
-        ColorType::Rgb16 => (ColorSpace::RGB, BitDepth::Sixteen, u16_native_bytes(image.to_rgb16().as_raw())),
-        ColorType::Rgba16 => (ColorSpace::RGBA, BitDepth::Sixteen, u16_native_bytes(image.to_rgba16().as_raw())),
-        other if other.has_alpha() => (ColorSpace::RGBA, BitDepth::Eight, image.to_rgba8().as_raw().to_vec()),
-        _ => (ColorSpace::RGB, BitDepth::Eight, image.to_rgb8().as_raw().to_vec()),
-    }
 }
 
 /// 取图像用于编码的（颜色类型，原始像素字节），保留原始位深与通道。
 fn pixel_buffer(image: &DynamicImage) -> (ExtendedColorType, Vec<u8>) {
     match image.color() {
         ColorType::L8 => (ExtendedColorType::L8, image.to_luma8().as_raw().to_vec()),
-        ColorType::La8 => (ExtendedColorType::La8, image.to_luma_alpha8().as_raw().to_vec()),
+        ColorType::La8 => (
+            ExtendedColorType::La8,
+            image.to_luma_alpha8().as_raw().to_vec(),
+        ),
         ColorType::Rgb8 => (ExtendedColorType::Rgb8, image.to_rgb8().as_raw().to_vec()),
         ColorType::Rgba8 => (ExtendedColorType::Rgba8, image.to_rgba8().as_raw().to_vec()),
-        ColorType::L16 => (ExtendedColorType::L16, u16_native_bytes(image.to_luma16().as_raw())),
-        ColorType::La16 => (ExtendedColorType::La16, u16_native_bytes(image.to_luma_alpha16().as_raw())),
-        ColorType::Rgb16 => (ExtendedColorType::Rgb16, u16_native_bytes(image.to_rgb16().as_raw())),
-        ColorType::Rgba16 => (ExtendedColorType::Rgba16, u16_native_bytes(image.to_rgba16().as_raw())),
-        other if other.has_alpha() => (ExtendedColorType::Rgba8, image.to_rgba8().as_raw().to_vec()),
+        ColorType::L16 => (
+            ExtendedColorType::L16,
+            u16_native_bytes(image.to_luma16().as_raw()),
+        ),
+        ColorType::La16 => (
+            ExtendedColorType::La16,
+            u16_native_bytes(image.to_luma_alpha16().as_raw()),
+        ),
+        ColorType::Rgb16 => (
+            ExtendedColorType::Rgb16,
+            u16_native_bytes(image.to_rgb16().as_raw()),
+        ),
+        ColorType::Rgba16 => (
+            ExtendedColorType::Rgba16,
+            u16_native_bytes(image.to_rgba16().as_raw()),
+        ),
+        other if other.has_alpha() => {
+            (ExtendedColorType::Rgba8, image.to_rgba8().as_raw().to_vec())
+        }
         _ => (ExtendedColorType::Rgb8, image.to_rgb8().as_raw().to_vec()),
     }
 }
@@ -684,20 +620,20 @@ mod tests {
 
     /// 造一个带 EXIF 的 PNG 源文件，返回其路径。
     fn write_png_with_exif(path: &Path) {
-        let image = DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
-            2,
-            2,
-            image::Rgb([1, 2, 3]),
-        ));
+        let image =
+            DynamicImage::ImageRgb8(image::RgbImage::from_pixel(2, 2, image::Rgb([1, 2, 3])));
         let (width, height) = image.dimensions();
         let mut cursor = std::io::Cursor::new(Vec::new());
         let mut encoder =
             PngEncoder::new_with_quality(&mut cursor, CompressionType::Fast, FilterType::Adaptive);
+        encoder.set_exif_metadata(b"EXIF-TEST".to_vec()).unwrap();
         encoder
-            .set_exif_metadata(b"EXIF-TEST".to_vec())
-            .unwrap();
-        encoder
-            .write_image(image.to_rgb8().as_raw(), width, height, ExtendedColorType::Rgb8)
+            .write_image(
+                image.to_rgb8().as_raw(),
+                width,
+                height,
+                ExtendedColorType::Rgb8,
+            )
             .unwrap();
         fs::write(path, cursor.into_inner()).unwrap();
     }
@@ -762,107 +698,6 @@ mod tests {
         let outcomes = run(options(vec![source], Some(root.join("out")))).unwrap();
         assert_eq!(outcomes.len(), 1);
         assert!(matches!(outcomes[0], ConvertOutcome::Success { .. }));
-
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    #[cfg(feature = "jxl")]
-    fn encodes_jxl_and_decodes_back() {
-        codecs::register_input_decoders();
-
-        let root = temp_dir("jxl-encode");
-        let source = root.join("photo.png");
-        write_png(&source, 4, 3);
-
-        let mut opts = options(vec![source], Some(root.join("out")));
-        opts.format = "jxl".parse().unwrap();
-        let outcomes = run(opts).unwrap();
-
-        assert_eq!(outcomes.len(), 1);
-        assert!(
-            matches!(outcomes[0], ConvertOutcome::Success { .. }),
-            "JXL 编码应成功：{:?}",
-            outcomes[0]
-        );
-        let decoded = ImageReader::open(outcomes[0].target())
-            .unwrap()
-            .decode()
-            .unwrap();
-        assert_eq!(decoded.dimensions(), (4, 3));
-
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    #[cfg(feature = "jxl")]
-    fn decodes_jxl_sample_generated_by_zune() {
-        // 让测试进程注册扩展解码 hook。
-        codecs::register_input_decoders();
-
-        // 用 zune-jpegxl 生成无损 JXL 样本（jxl 特性依赖）。
-        let (width, height) = (4u32, 3u32);
-        let mut pixels = Vec::with_capacity((width * height * 3) as usize);
-        for y in 0..height {
-            for x in 0..width {
-                pixels.extend_from_slice(&[(x * 60) as u8, (y * 80) as u8, 128]);
-            }
-        }
-        let encoder = zune_jpegxl::JxlSimpleEncoder::new(
-            &pixels,
-            zune_core::options::EncoderOptions::new(
-                width as usize,
-                height as usize,
-                zune_core::colorspace::ColorSpace::RGB,
-                zune_core::bit_depth::BitDepth::Eight,
-            ),
-        );
-        let mut encoded = Vec::new();
-        encoder.encode(&mut encoded).expect("JXL 样本编码失败");
-
-        let root = temp_dir("jxl");
-        let source = root.join("sample.jxl");
-        fs::write(&source, encoded).unwrap();
-
-        let mut opts = options(vec![source], Some(root.join("out")));
-        opts.format = "png".parse().unwrap();
-        let outcomes = run(opts).unwrap();
-
-        assert_eq!(outcomes.len(), 1);
-        assert!(
-            matches!(outcomes[0], ConvertOutcome::Success { .. }),
-            "JXL 解码应成功：{:?}",
-            outcomes[0]
-        );
-        let decoded = ImageReader::open(outcomes[0].target())
-            .unwrap()
-            .decode()
-            .unwrap();
-        assert_eq!(decoded.dimensions(), (width, height));
-
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    #[ignore = "user-run: 需要真实 HEIC 样本（如 iPhone 照片）。把样本放到 crates/image-convert/tests/samples/photo.heic 后运行 cargo test -p image-convert -- --ignored"]
-    fn decodes_real_heic_sample() {
-        let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples/photo.heic");
-        assert!(
-            sample.exists(),
-            "缺少样本文件 tests/samples/photo.heic，请先放入一张 HEIC 照片"
-        );
-
-        let root = temp_dir("heic");
-        let mut opts = options(vec![sample], Some(root.join("out")));
-        opts.format = "png".parse().unwrap();
-        let outcomes = run(opts).unwrap();
-
-        assert_eq!(outcomes.len(), 1);
-        assert!(
-            matches!(outcomes[0], ConvertOutcome::Success { .. }),
-            "HEIC 解码应成功：{:?}",
-            outcomes[0]
-        );
 
         let _ = fs::remove_dir_all(&root);
     }

@@ -1,3 +1,5 @@
+//! 由源文件推导输出路径：镜像目录结构或就地转换。
+
 use std::path::{Path, PathBuf};
 
 /// 输出路径推导错误。
@@ -55,8 +57,8 @@ mod tests {
     #[test]
     fn writes_in_place_when_output_dir_is_none() {
         let source = Path::new("in/sub/photo.png");
-        let path = output_path(source, None, Path::new("in"), "avif").unwrap();
-        assert_eq!(path, PathBuf::from("in/sub/photo.avif"));
+        let path = output_path(source, None, Path::new("in"), "webp").unwrap();
+        assert_eq!(path, PathBuf::from("in/sub/photo.webp"));
     }
 
     #[test]

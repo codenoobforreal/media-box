@@ -1,3 +1,5 @@
+//! 逐文件转换结果与批量汇总的文本输出。
+
 use crate::convert::ConvertOutcome;
 use std::io::{self, Write};
 

@@ -8,12 +8,15 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-anyhow = "1"
-clap = { version = "4", features = ["cargo", "derive"] }
-crossterm = "0"
+# 默认特性全部关闭，只启用代码实际用到的特性，避免引入无用依赖与编译开销。
+anyhow = { version = "1", default-features = false, features = ["std"] }
+clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "cargo"] }
+crossterm = { version = "0", default-features = false, features = ["windows"] }
 ctrlc = "3"
-thiserror = "2"
-image = "0.25"
+thiserror = { version = "2", default-features = false, features = ["std"] }
+image = { version = "0.25", default-features = false, features = [
+    "bmp", "gif", "jpeg", "png", "webp",
+] }
 media-box-core = { path = "crates/media-box-core" }
 
 [workspace.lints.clippy]

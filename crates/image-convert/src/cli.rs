@@ -1,3 +1,5 @@
+//! image-convert 的命令行定义：参数表、解析与校验。
+
 use crate::convert::ConvertOptions;
 use crate::format::TargetFormat;
 use crate::metadata::MetadataMode;
@@ -123,7 +125,7 @@ pub fn command() -> Command {
                 .short('f')
                 .long("format")
                 .value_name("FORMAT")
-                .help("目标格式：png/jpg/webp/avif/gif/tif/bmp/ico/qoi/hdr/exr/jxl；heic/heif 仅支持解码，用 --list-formats 查看能力矩阵")
+                .help("目标格式：png/jpg/jpeg/gif/webp/bmp，用 --list-formats 查看完整清单")
                 .value_parser(value_parser!(TargetFormat)),
         )
         .arg(
@@ -278,7 +280,7 @@ mod tests {
             "-o",
             "out",
             "-f",
-            "avif",
+            "webp",
             "-q",
             "70",
             "-d",
@@ -290,7 +292,7 @@ mod tests {
             "--optimize",
         ]);
         assert_eq!(args.output_dir, Some(PathBuf::from("out")));
-        assert_eq!(args.format, "avif".parse::<TargetFormat>().unwrap());
+        assert_eq!(args.format, "webp".parse::<TargetFormat>().unwrap());
         assert_eq!(args.quality.as_u8(), 70);
         assert_eq!(args.depth, 2);
         assert_eq!(args.jobs, 4);
@@ -368,20 +370,6 @@ mod tests {
                 .try_get_matches_from(["image-convert", "--dry-run"])
                 .is_err()
         );
-    }
-
-    #[test]
-    fn decode_only_targets_parse() {
-        for text in ["heic", "heif"] {
-            let args = parse_from(&["image-convert", "-i", ".", "-f", text]);
-            assert!(args.format.is_decode_only(), "{text} 应解析为仅解码格式");
-        }
-    }
-
-    #[test]
-    fn jxl_target_is_writable() {
-        let args = parse_from(&["image-convert", "-i", ".", "-f", "jxl"]);
-        assert!(!args.format.is_decode_only());
     }
 
     #[test]
