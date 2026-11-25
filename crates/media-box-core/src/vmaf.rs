@@ -40,15 +40,18 @@ pub fn filter_graph(mode: VmafMeasureMode, settings: BitrateReduceSettings) -> S
 
     match mode {
         VmafMeasureMode::SameSpec => {
-            let resolution = settings.output_resolution();
+            // 失真帧是样本编码产物，已带 settings.video_filter()；参考帧必须走同一条
+            // 滤镜链才能两路同规格。不能拿目标边界分辨率硬拼 scale：
+            // 等比缩小时实际输出小于目标，不放大时实际输出等于源。
+            let reference_filter = match settings.video_filter() {
+                Some(filter) => format!("{filter},"),
+                None => String::new(),
+            };
             format!(
                 "[0:v]setpts=PTS-STARTPTS[dist];\
-                 [1:v]scale=w={w}:h={h}:flags=lanczos,fps={fps},setpts=PTS-STARTPTS[ref];\
+                 [1:v]{reference_filter}setpts=PTS-STARTPTS[ref];\
                  [dist][ref]libvmaf=model=version={model}:n_threads={threads}",
-                w = resolution.width(),
-                h = resolution.height(),
-                fps = settings.target_fps().as_f64(),
-                model = model(resolution),
+                model = model(settings.output_resolution()),
             )
         }
         VmafMeasureMode::FullSpec => {
@@ -96,16 +99,20 @@ mod tests {
 
     #[test]
     fn the_two_modes_measure_different_resolutions() {
-        // 同规格：参考帧缩到输出规格；4K 源要用 4K 模型。
-        let same_spec = filter_graph(VmafMeasureMode::SameSpec, settings());
+        // 同规格：参考帧走与样本编码相同的滤镜链（先 fps 后等比 scale），
+        // 不再拿目标边界分辨率硬拼 scale；输出规格用 3d0h 模型。
+        let settings = settings();
+        let same_spec = filter_graph(VmafMeasureMode::SameSpec, settings);
+        let expected = settings.video_filter().expect("该设置应生成滤镜");
         assert!(
-            same_spec.contains("[1:v]scale=w=1920:h=1080"),
+            same_spec.contains(&format!("[1:v]{expected},setpts=PTS-STARTPTS[ref]")),
             "{same_spec}"
         );
+        assert!(!same_spec.contains("scale=w="), "{same_spec}");
         assert!(same_spec.contains("vmaf_v1.0.16_3d0h"), "{same_spec}");
 
         // 全规格：失真帧上采样回源规格，参考帧原样。
-        let full_spec = filter_graph(VmafMeasureMode::FullSpec, settings());
+        let full_spec = filter_graph(VmafMeasureMode::FullSpec, settings);
         assert!(
             full_spec.contains("[0:v]scale=w=3840:h=2160"),
             "{full_spec}"
@@ -114,6 +121,19 @@ mod tests {
             full_spec.contains("[1:v]setpts=PTS-STARTPTS[ref]"),
             "{full_spec}"
         );
+    }
+
+    #[test]
+    fn same_spec_keeps_the_reference_untouched_when_nothing_is_reduced() {
+        // 源小于用户目标时不放大：两路都不加滤镜，不能出现 1920x1080 硬编码。
+        let settings = BitrateReduceSettings::new(
+            ResolutionDownScaling::new(Some(Resolution::Uhd), Resolution::Hd),
+            FrameRateReduce::new(None, FrameRatePerSecond::new(24.0).unwrap()),
+        );
+        let graph = filter_graph(VmafMeasureMode::SameSpec, settings);
+        assert!(graph.contains("[1:v]setpts=PTS-STARTPTS[ref]"), "{graph}");
+        assert!(!graph.contains("scale="), "{graph}");
+        assert!(!graph.contains("fps="), "{graph}");
     }
 
     #[test]

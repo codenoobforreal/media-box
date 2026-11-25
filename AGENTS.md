@@ -267,9 +267,11 @@ flowchart TD
 
 ## VMAF 两口径
 
-`vmaf.rs` 按 `VmafMeasureMode` 构造 libvmaf 滤镜图。同规格把参考帧缩到输出分辨率，只衡量编码损失；全规格在源分辨率上衡量编码 + 降规格的总损失。分辨率不变时同一次测量即可，`SampleMeasurer::full_spec_is_distinct` 返回 `false` 会跳过端点全规格、标定补测与收尾复核（测量次数约减 40%）。
+`vmaf.rs` 按 `VmafMeasureMode` 构造 libvmaf 滤镜图。同规格的参考支路直接复用 `settings.video_filter()`，与样本编码走完全相同的滤镜链，只衡量编码损失；全规格在源分辨率上衡量编码 + 降规格的总损失。**不要**用 `output_resolution()` 硬拼 `scale=w/h` 到参考支路：等比缩小（`force_original_aspect_ratio=decrease`）后实际尺寸小于目标边界，不放大时实际尺寸等于源，硬拼会让两路尺寸不一致并使 VMAF 测量失败。`output_resolution()` 只在缩放真正发生时取目标，否则返回源。分辨率不变时同一次测量即可，`SampleMeasurer::full_spec_is_distinct` 返回 `false` 会跳过端点全规格、标定补测与收尾复核（测量次数约减 40%）。
 
-模型按分辨率选择：4K 用 `vmaf_v1.0.16_1d5h_2160`，其余用 `vmaf_v1.0.16_3d0h`。
+模型按实际输出分辨率选择：4K 用 `vmaf_v1.0.16_1d5h_2160`，其余用 `vmaf_v1.0.16_3d0h`。
+
+VMAF 测量意图是**颗粒合成后的最终观感**：`crf_probe.rs` 的 `build_vmaf_command` 两路都不加 `-export_side_data +film_grain`，让失真帧与源片按各自码流正常合成颗粒。该选项是 per-input 的，单侧设置会造成两路颗粒口径不一致。命令组装是纯函数，用 `get_args()` 静态断言，不启动 ffmpeg。
 
 ## 编码参数
 

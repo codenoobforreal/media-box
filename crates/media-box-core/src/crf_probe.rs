@@ -65,6 +65,35 @@ impl<'a> ProbeContext<'a> {
     }
 }
 
+/// 组装 VMAF 测量命令：第一路是已编码样本，第二路是源片同一时间点。
+///
+/// 两路都不加 `-export_side_data +film_grain`：测量目标是颗粒合成后的最终观感，
+/// 让两路按各自码流正常合成颗粒，口径一致。该选项只作用于紧随其后的那一路输入，
+/// 单侧设置会让参考帧与失真帧的颗粒状态不一致。
+///
+/// 纯组装、不启动进程，便于用 `get_args()` 做静态断言。
+fn build_vmaf_command(
+    input: &Path,
+    distorted: &Path,
+    sample: &SceneSample,
+    filter: &str,
+) -> Command {
+    let mut command = Command::new("ffmpeg");
+    command
+        .args(["-hide_banner", "-nostats", "-an", "-sn", "-dn", "-i"])
+        .arg(distorted)
+        .arg("-ss")
+        .arg(sample.start().as_secs_f64().to_string())
+        .arg("-i")
+        .arg(input)
+        .arg("-t")
+        .arg(sample.duration().as_secs_f64().to_string())
+        .arg("-lavfi")
+        .arg(filter)
+        .args(["-f", "null", "-"]);
+    command
+}
+
 /// 采样测分器：把每个场景样本编码后用 libvmaf 测分，实现 SampleMeasurer。
 pub struct SampleProbe<'a> {
     context: ProbeContext<'a>,
@@ -219,28 +248,7 @@ impl<'a> SampleProbe<'a> {
         distorted: &Path,
         mode: VmafMeasureMode,
     ) -> Result<Option<f64>> {
-        let mut command = Command::new("ffmpeg");
-        command
-            .args([
-                "-hide_banner",
-                "-nostats",
-                "-export_side_data",
-                "+film_grain",
-                "-an",
-                "-sn",
-                "-dn",
-                "-i",
-            ])
-            .arg(distorted)
-            .arg("-ss")
-            .arg(sample.start().as_secs_f64().to_string())
-            .arg("-i")
-            .arg(self.context.input)
-            .arg("-t")
-            .arg(sample.duration().as_secs_f64().to_string())
-            .arg("-lavfi")
-            .arg(self.filter(mode))
-            .args(["-f", "null", "-"]);
+        let command = build_vmaf_command(self.context.input, distorted, sample, self.filter(mode));
 
         let output = process::run(command, self.context.canceller, |_, _| {})?;
 
@@ -320,5 +328,48 @@ impl TempSampleFile {
 impl Drop for TempSampleFile {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn vmaf_command_composes_grain_in_both_inputs() {
+        let sample = SceneSample::new(Duration::from_secs(10), Duration::from_secs(5));
+        let command = build_vmaf_command(
+            Path::new("source.mkv"),
+            Path::new("sample.mkv"),
+            &sample,
+            "[0:v]setpts=PTS-STARTPTS[dist];[1:v]setpts=PTS-STARTPTS[ref]",
+        );
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+
+        // 意图是最终观感：两路都按各自码流合成颗粒，不能单侧导出 side data。
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg == "-export_side_data" || arg == "+film_grain"),
+            "两路颗粒口径必须一致：{args:?}"
+        );
+        // distorted 是第一个输入，源片是第二个且带 -ss 定位；顺序不能被改动破坏。
+        assert_eq!(
+            args.iter().filter(|arg| **arg == "-i").count(),
+            2,
+            "{args:?}"
+        );
+        let distorted_pos = args.iter().position(|arg| arg == "sample.mkv").unwrap();
+        let seek_pos = args.iter().position(|arg| arg == "-ss").unwrap();
+        let source_pos = args.iter().position(|arg| arg == "source.mkv").unwrap();
+        assert!(
+            distorted_pos < seek_pos && seek_pos < source_pos,
+            "{args:?}"
+        );
+        assert!(args.iter().any(|arg| arg == "-lavfi"), "{args:?}");
     }
 }

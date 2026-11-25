@@ -91,9 +91,16 @@ impl BitrateReduceSettings {
         self.resolution.source_resolution
     }
 
-    /// 输出分辨率（可能等于源分辨率）。
+    /// 实际输出分辨率：发生缩放时取目标，否则保持源分辨率。
+    ///
+    /// 用户目标大于源时 `scale_filter()` 返回 None（不放大），此时实际输出仍是源，
+    /// 不能把目标边界当作实际尺寸——CRF 区间与 VMAF 模型都依赖这里。
     pub fn output_resolution(self) -> Resolution {
-        self.resolution.target_resolution()
+        if self.resolution.scale_filter().is_some() {
+            self.resolution.target_resolution()
+        } else {
+            self.input_resolution()
+        }
     }
 
     /// 源帧率。
@@ -202,6 +209,21 @@ mod tests {
             settings(Some(Resolution::Uhd), None, Resolution::Fhd, 24.0).video_filter(),
             None,
             "目标比源大时不应放大"
+        );
+
+        // 不放大时实际输出仍是源，不能把用户目标当作输出分辨率。
+        assert_eq!(
+            settings(Some(Resolution::Uhd), None, Resolution::Fhd, 24.0).output_resolution(),
+            Resolution::Fhd
+        );
+        assert_eq!(
+            settings(None, None, Resolution::Fhd, 24.0).output_resolution(),
+            Resolution::Fhd
+        );
+        // 真实下采样时取目标。
+        assert_eq!(
+            settings(Some(Resolution::Fhd), None, Resolution::Uhd, 24.0).output_resolution(),
+            Resolution::Fhd
         );
     }
 
