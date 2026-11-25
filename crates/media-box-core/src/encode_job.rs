@@ -77,17 +77,19 @@ pub fn run(
 
     match result {
         Ok(output) if output.success() => {
+            // 先取体积再上报 100%：兜底读 metadata 失败时不应先显示"完成"再报错。
+            let bytes = match parser.total_size_bytes() {
+                Some(bytes) => bytes,
+                None => fs::metadata(output_path)
+                    .with_context(|| format!("读取输出文件体积 {}", output_path.display()))?
+                    .len(),
+            };
             reporter.progress(ProgressSnapshot::new(
                 100.0,
                 started_at.elapsed(),
                 Some(Duration::ZERO),
             ));
-            match parser.total_size_bytes() {
-                Some(bytes) => Ok(bytes),
-                None => Ok(fs::metadata(output_path)
-                    .with_context(|| format!("读取输出文件体积 {}", output_path.display()))?
-                    .len()),
-            }
+            Ok(bytes)
         }
         Ok(output) => {
             let _ = fs::remove_file(output_path);
