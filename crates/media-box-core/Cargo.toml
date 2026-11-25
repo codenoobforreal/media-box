@@ -11,5 +11,15 @@ crossterm.workspace = true
 ctrlc.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+criterion.workspace = true
+hotpath.workspace = true
+
+[features]
+# 本地剖析，全部 opt-in：未启用时 hotpath 的宏与适配层都是 no-op，不编译任何剖析依赖。
+hotpath = ["hotpath/hotpath"]
+hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
+hotpath-callgrind = ["hotpath", "hotpath/hotpath-callgrind"]
+
 [lints]
 workspace = true
