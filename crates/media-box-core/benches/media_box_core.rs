@@ -51,7 +51,8 @@ fn tuned(
 }
 
 /// 仓库内的真实 ffmpeg -progress 输出样本（与 progress.rs 的解析契约对应）。
-const PROGRESS_SAMPLE: &str = include_str!("../../../ffmpeg_examples/progress pipe example.txt");
+const PROGRESS_SAMPLE: &str =
+    include_str!("../../../ffmpeg_examples/ffmpeg progress pipe example.txt");
 
 fn bench_progress(c: &mut Criterion) {
     let lines: Vec<&str> = PROGRESS_SAMPLE.lines().collect();
