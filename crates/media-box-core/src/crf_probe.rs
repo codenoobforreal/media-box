@@ -2,6 +2,7 @@
 
 use crate::crf_search::{SampleMeasurer, SearchJournal};
 use crate::encoder::{Av1EncodeArgs, BitrateReduceSettings};
+use crate::ffmpeg_args::FfmpegCommand;
 use crate::interrupter::{Cancelled, Canceller};
 use crate::process;
 use crate::report::{Reporter, Stage};
@@ -78,20 +79,16 @@ fn build_vmaf_command(
     sample: &SceneSample,
     filter: &str,
 ) -> Command {
-    let mut command = Command::new("ffmpeg");
-    command
-        .args(["-hide_banner", "-nostats", "-an", "-sn", "-dn", "-i"])
-        .arg(distorted)
-        .arg("-ss")
-        .arg(sample.start().as_secs_f64().to_string())
-        .arg("-i")
-        .arg(input)
-        .arg("-t")
-        .arg(sample.duration().as_secs_f64().to_string())
-        .arg("-lavfi")
-        .arg(filter)
-        .args(["-f", "null", "-"]);
-    command
+    FfmpegCommand::new()
+        .no_stats()
+        .no_audio_subtitle_data()
+        .input(distorted)
+        .seek(sample.start())
+        .input(input)
+        .duration(sample.duration())
+        .lavfi(filter)
+        .null_output()
+        .build()
 }
 
 /// 采样测分器：把每个场景样本编码后用 libvmaf 测分，实现 SampleMeasurer。
@@ -350,26 +347,30 @@ mod tests {
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
 
-        // 意图是最终观感：两路都按各自码流合成颗粒，不能单侧导出 side data。
-        assert!(
-            !args
-                .iter()
-                .any(|arg| arg == "-export_side_data" || arg == "+film_grain"),
-            "两路颗粒口径必须一致：{args:?}"
-        );
-        // distorted 是第一个输入，源片是第二个且带 -ss 定位；顺序不能被改动破坏。
+        // 完整参数序列锁定：-ss 必须夹在两个 -i 之间，-t 在 lavfi 之前；
+        // 两路都不导出 film_grain side data（衡量颗粒合成后的最终观感）。
         assert_eq!(
-            args.iter().filter(|arg| **arg == "-i").count(),
-            2,
-            "{args:?}"
+            args,
+            [
+                "-hide_banner",
+                "-nostats",
+                "-an",
+                "-sn",
+                "-dn",
+                "-i",
+                "sample.mkv",
+                "-ss",
+                "10",
+                "-i",
+                "source.mkv",
+                "-t",
+                "5",
+                "-lavfi",
+                "[0:v]setpts=PTS-STARTPTS[dist];[1:v]setpts=PTS-STARTPTS[ref]",
+                "-f",
+                "null",
+                "-",
+            ]
         );
-        let distorted_pos = args.iter().position(|arg| arg == "sample.mkv").unwrap();
-        let seek_pos = args.iter().position(|arg| arg == "-ss").unwrap();
-        let source_pos = args.iter().position(|arg| arg == "source.mkv").unwrap();
-        assert!(
-            distorted_pos < seek_pos && seek_pos < source_pos,
-            "{args:?}"
-        );
-        assert!(args.iter().any(|arg| arg == "-lavfi"), "{args:?}");
     }
 }
