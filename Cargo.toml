@@ -18,16 +18,71 @@ image = { version = "0.25", default-features = false, features = [
     "bmp", "gif", "jpeg", "png", "webp",
 ] }
 media-box-core = { path = "crates/media-box-core" }
-# 仅作 dev-dependency：基准与性能测试使用，不进入任何正式构建。
-criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
-# 只开 Criterion 适配层；剖析能力（hotpath / hotpath-alloc / hotpath-callgrind）由各 crate 的 feature 按需转发。
-# criterion 固定 0.7：0.8 在 windows/unix 上无条件依赖 alloca（C 编译），0.7 无此依赖。
-hotpath = { version = "0.33", default-features = false, features = ["criterion-0-7"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"          # 每个 unsafe 操作都要有自己的 unsafe 块
+missing_debug_implementations = "warn"   # 公开类型实现 Debug
+missing_docs = "warn"                    # 库的公开条目都要有文档
+unreachable_pub = "warn"                 # 实际未导出的 pub
+rust_2018_idioms = { level = "warn", priority = -1 } # 2018 版习惯，如 Formatter<'_>
 
 [workspace.lints.clippy]
-complexity = "deny"
-perf = "deny"
-style = "deny"
+# 组先设、优先级更低，让下面的具体设置生效。
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# 本仓库原有的更严格分组：这些仍然直接拒绝。优先级高于下面的单条设置，
+# 避免「分组与单条 lint 同优先级」的歧义警告。
+complexity = { level = "deny", priority = 1 }
+perf = { level = "deny", priority = 1 }
+style = { level = "deny", priority = 1 }
+
+# Panic：返回错误，或给每个有意 panic 写明原因。
+unwrap_used = "warn"                     # 用 ? 或 expect("为什么不会失败")
+expect_used = "allow"                    # 带原因的 expect 是被认可的形式
+panic_in_result_fn = "warn"              # 返回 Result 的函数不应再 panic
+missing_panics_doc = "warn"              # 库在 # Panics 下记录可达 panic
+missing_errors_doc = "warn"              # 库在 # Errors 下记录失败情形
+missing_assert_message = "warn"          # assert! 说明哪里出了错（#[test] 内静默）
+
+# 抑制必须自解释，且在不再需要时失效。
+allow_attributes = "warn"                # 优先用 #[expect] 而非 #[allow]（需 rust-version 1.81+）
+allow_attributes_without_reason = "warn" # 每个抑制都要写原因（需 rust-version 1.81+）
+
+# unsafe 必须有理由。
+undocumented_unsafe_blocks = "warn"      # 每个 unsafe 块写 // SAFETY:
+multiple_unsafe_ops_per_block = "warn"   # 每个块只做一次 unsafe 操作
+
+# API 形状。
+fn_params_excessive_bools = "warn"       # bool 参数：改用枚举或两个方法
+struct_excessive_bools = "warn"          # 过多 bool 字段：改用枚举或 bitflags
+clone_on_ref_ptr = "warn"                # 写 Rc::clone(&x)，让廉价克隆可见
+redundant_clone = "warn"                 # 原值不再使用的 clone
+rc_buffer = "warn"                       # Rc<String> / Rc<Vec<T>> 改用 Rc<str> / Rc<[T]>
+
+# 演进。
+exhaustive_enums = "warn"                # 库导出的枚举加 #[non_exhaustive]（二进制内静默）
+
+# 习惯。
+string_add = "warn"                      # 用 format! 或 push_str 拼字符串，别用 +
+wildcard_imports = "warn"                # 禁止通配导入（测试里 super::* 可用）
+
+# 输出与调试残留。
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"                    # 库只记日志，不打印
+print_stderr = "warn"                    # 库只记日志，不打印
+
+# 会静默丢信息的转换。
+as_conversions = "warn"                  # 优先 From / TryFrom
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+
+# 实践中噪音大或本规范不认同的 pedantic 项。
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+module_inception = "allow"               # 以主要条目命名的叶子模块没问题
+enum_glob_use = "allow"                  # 在匹配它的函数里用 Enum::*
 
 [profile.release]
 strip = true

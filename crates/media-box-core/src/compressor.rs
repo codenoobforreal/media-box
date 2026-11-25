@@ -27,12 +27,19 @@ use std::time::{Duration, Instant};
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompressOptions {
+    /// 输入文件或目录；目录按 `depth` 递归。
     pub inputs: Vec<PathBuf>,
+    /// 输出分辨率上限，`None` 表示不缩放。
     pub resolution: Option<Resolution>,
+    /// 输出目录，`None` 表示与源文件同目录。
     pub output_dir: Option<PathBuf>,
+    /// 目录递归深度。
     pub depth: u8,
+    /// 帧率上限，`None` 表示不降帧。
     pub fps: Option<FrameRatePerSecond>,
+    /// SVT-AV1 preset。
     pub preset: EncoderPreset,
+    /// 目标 VMAF 分数。
     pub vmaf_score: VmafScore,
 }
 
@@ -59,15 +66,25 @@ impl CompressOptions {
     }
 }
 
+/// 压缩流水线入口：持有配置，逐个文件走完整阶段。
+#[derive(Debug)]
 pub struct Compressor {
     options: CompressOptions,
 }
 
 impl Compressor {
+    /// 用配置构造压缩器。
     pub fn new(options: CompressOptions) -> Self {
         Self { options }
     }
 
+    /// 按顺序压缩队列中的全部视频。
+    ///
+    /// 单个文件失败只报告并继续下一个；用户取消时立即停止。
+    ///
+    /// # Errors
+    ///
+    /// 输入路径下没有任何视频文件时返回错误。
     pub fn run(&self, canceller: &Canceller) -> Result<()> {
         let mut queue = collect_videos(&self.options.inputs, Some(self.options.depth))?;
 
@@ -115,7 +132,7 @@ impl Compressor {
             FrameRateReduce::new(self.options.fps, metadata.fps()),
         );
 
-        let samples = self.scene_samples(video_path, metadata.duration(), canceller, reporter)?;
+        let samples = Self::scene_samples(video_path, metadata.duration(), canceller, reporter)?;
 
         reporter.stage(Stage::FilmGrain);
         let film_grain =
@@ -166,7 +183,6 @@ impl Compressor {
     }
 
     fn scene_samples(
-        &self,
         video_path: &Path,
         duration: Duration,
         canceller: &Canceller,

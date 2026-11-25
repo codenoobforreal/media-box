@@ -14,13 +14,19 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// 保留的 stderr 行数上限；超出后丢弃最旧的行。
 const MAX_STDERR_LINES: usize = 200;
 
-/// 单行字节上限；超长行被截断，避免 read_until 让缓冲无限增长。
+/// 单行字节上限；超长行被截断，避免 `read_until` 让缓冲无限增长。
 const MAX_LINE_BYTES: usize = 64 * 1024;
 
 /// 子进程输出的流。
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "只有 stdout / stderr 两路，新增流会改变行读取协议"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stream {
+    /// 标准输出。
     Stdout,
+    /// 标准错误。
     Stderr,
 }
 
@@ -42,7 +48,7 @@ impl ProcessOutput {
         self.status.success()
     }
 
-    /// 保留的 stderr 行（上限 MAX_STDERR_LINES）。
+    /// 保留的 stderr 行（上限 `MAX_STDERR_LINES`）。
     pub fn stderr_lines(&self) -> &[String] {
         &self.stderr_lines
     }
@@ -104,6 +110,10 @@ pub fn display_command(command: &Command) -> String {
 }
 
 /// 执行命令，逐行回调输出；检测到取消时杀掉子进程并返回 [`Cancelled`]。
+///
+/// # Errors
+///
+/// 启动子进程失败、读取输出出错，或期间检测到取消时返回错误。
 pub fn run(
     mut command: Command,
     canceller: &Canceller,

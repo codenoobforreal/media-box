@@ -41,7 +41,7 @@ impl SceneSample {
     }
 }
 
-/// 场景样本规划器：由切点生成至多 maximum_sample_count 个样本，并提供固定比例回退。
+/// 场景样本规划器：由切点生成至多 `maximum_sample_count` 个样本，并提供固定比例回退。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SceneSampler {
     minimum_scene_duration: Duration,
@@ -65,12 +65,16 @@ impl Default for SceneSampler {
 
 impl SceneSampler {
     /// 校验配置组合的合法性；只依赖常量，任务开始时调用一次即可。
+    ///
+    /// # Errors
+    ///
+    /// 边缘排除比例过大、导致首尾禁采样区重叠或回退起点落入禁区时返回错误。
     pub fn validate(&self) -> Result<()> {
         if self.edge_exclusion_ratio >= 0.5 {
             bail!("边缘排除比例 ≥ 0.5，首尾禁采样区重叠，无法采样")
         }
 
-        let first_fallback_ratio = 1.0 / (self.maximum_sample_count as f64 + 1.0);
+        let first_fallback_ratio = 1.0 / (f64::from(self.maximum_sample_count) + 1.0);
 
         if self.edge_exclusion_ratio >= first_fallback_ratio {
             bail!("边缘排除比例过大：按固定比例采样的起点会落入片头禁采样区")
@@ -93,6 +97,7 @@ impl SceneSampler {
         }
     }
 
+    /// 由切点规划样本：合并密集切点、按最长场景取样，无可用场景时回退固定比例。
     pub fn plan_samples(
         &self,
         records: &[SceneCutDetectionRecord],
@@ -103,7 +108,7 @@ impl SceneSampler {
             return self.multi_fallback_samples(total_video_duration);
         }
 
-        let spans = self.convert_scene_cuts_to_time_spans(&merged, total_video_duration);
+        let spans = Self::convert_scene_cuts_to_time_spans(&merged, total_video_duration);
         let mut filtered = self.filter_by_duration_and_edge_exclusion(&spans, total_video_duration);
         if filtered.is_empty() {
             return self.multi_fallback_samples(total_video_duration);
@@ -118,11 +123,11 @@ impl SceneSampler {
     /// 前提：`validate()` 已通过，否则除数 `tail_bound_constraint` 可能为 0。
     fn short_video_threshold(&self) -> Duration {
         let tail_bound_constraint =
-            1.0 - self.edge_exclusion_ratio * (self.maximum_sample_count as f64 + 1.0);
+            1.0 - self.edge_exclusion_ratio * (f64::from(self.maximum_sample_count) + 1.0);
 
         (self
             .maximum_sample_duration
-            .mul_f64(self.maximum_sample_count as f64 + 1.0))
+            .mul_f64(f64::from(self.maximum_sample_count) + 1.0))
         .div_f64(tail_bound_constraint)
     }
 
@@ -192,7 +197,6 @@ impl SceneSampler {
     }
 
     fn convert_scene_cuts_to_time_spans(
-        &self,
         records: &[SceneCutDetectionRecord],
         total_video_duration: Duration,
     ) -> Vec<SceneTimeSpan> {
@@ -254,7 +258,11 @@ impl SceneSampler {
                 let duration = self.maximum_sample_duration.min(scene_duration);
 
                 SceneSample::new(
-                    time_span.start_time + (scene_duration - duration) / 2,
+                    time_span.start_time
+                        + scene_duration
+                            .checked_sub(duration)
+                            .expect("duration 取两者的较小值，scene_duration 不会更短")
+                            / 2,
                     duration,
                 )
             })
@@ -274,7 +282,7 @@ mod tests {
     fn every_sample_fits_inside_the_video() {
         // 短视频：曾经在 total/2 - max/2 处下溢 panic。
         let short = SceneSampler::default().fallback_samples(Duration::from_secs(5));
-        assert!(!short.is_empty());
+        assert!(!short.is_empty(), "短视频应至少产出一个样本");
         assert!(
             short
                 .iter()
@@ -297,7 +305,7 @@ mod tests {
         let samples = SceneSampler::default()
             .plan_samples(&[record(10.0), record(15.0), record(40.0)], total);
 
-        assert!(!samples.is_empty());
+        assert!(!samples.is_empty(), "应至少采到一个场景样本");
         assert!(samples.len() <= 3, "最多 3 个样本");
         assert!(
             samples

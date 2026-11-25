@@ -52,14 +52,14 @@ fn convert(source: &Path, format: &str, out: &Path) -> (std::process::ExitStatus
 /// 校验源图与输出尺寸一致（两者都能被 image 内置解码器读取）。
 fn assert_dimensions_match(source: &Path, target: &Path) {
     let source_dims = ImageReader::open(source)
-        .unwrap()
+        .expect("打开源样本")
         .decode()
-        .unwrap()
+        .expect("解码源样本")
         .dimensions();
     let target_dims = ImageReader::open(target)
-        .unwrap()
+        .expect("打开输出文件")
         .decode()
-        .unwrap()
+        .expect("解码输出文件")
         .dimensions();
     assert_eq!(target_dims, source_dims, "输出尺寸应与源图一致");
 }

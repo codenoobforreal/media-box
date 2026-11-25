@@ -15,7 +15,7 @@ pub struct Cancelled;
 impl Cancelled {
     /// 判断任意错误（含 `anyhow` 的上下文链）是否由取消引起。
     pub fn is_in(error: &anyhow::Error) -> bool {
-        error.chain().any(|cause| cause.is::<Cancelled>())
+        error.chain().any(<dyn std::error::Error>::is::<Cancelled>)
     }
 }
 
@@ -45,7 +45,7 @@ impl Canceller {
         let mut state = self
             .state
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         if state.second_press_armed {
             return true;
@@ -60,7 +60,7 @@ impl Canceller {
     pub fn cancel(&self) {
         self.state
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .cancelled = true;
     }
 
@@ -68,11 +68,15 @@ impl Canceller {
     pub fn is_cancelled(&self) -> bool {
         self.state
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .cancelled
     }
 
     /// 已取消则返回 Cancelled，否则返回 Ok。
+    ///
+    /// # Errors
+    ///
+    /// 已取消时返回 [`Cancelled`]。
     pub fn check(&self) -> Result<(), Cancelled> {
         if self.is_cancelled() {
             Err(Cancelled)
@@ -83,10 +87,14 @@ impl Canceller {
 }
 
 /// 注册全局 Ctrl+C handler，返回共享的 Canceller
+///
+/// # Errors
+///
+/// 系统不允许安装信号处理器时返回错误。
 #[cfg(feature = "app")]
 pub fn install() -> Result<Arc<Canceller>> {
     let canceller = Arc::new(Canceller::new());
-    let for_handler = canceller.clone();
+    let for_handler = Arc::clone(&canceller);
 
     ctrlc::set_handler(move || {
         if for_handler.on_ctrl_c() {

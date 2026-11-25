@@ -242,6 +242,10 @@ struct SingleSpecCurve {
 }
 
 impl SampleMeasurer for SingleSpecCurve {
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "测试替身用断言锁定测量口径，断言失败即测试失败"
+    )]
     fn measure(&mut self, crf: ConstantRateFactor, mode: VmafMeasureMode) -> Result<Option<f64>> {
         assert_eq!(
             mode,

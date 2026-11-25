@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 /// 输出路径推导错误。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum OutputPathError {
+pub(crate) enum OutputPathError {
     #[error("源文件名包含非 UTF-8 字符：{0}")]
     NonUtf8Source(PathBuf),
 }
@@ -16,7 +16,7 @@ pub enum OutputPathError {
 /// - 源文件不在 `input_root` 下时，直接平铺到目标目录。
 ///
 /// 文件名统一改为 `<stem>.<extension>`。
-pub fn output_path(
+pub(crate) fn output_path(
     source: &Path,
     output_dir: Option<&Path>,
     input_root: &Path,

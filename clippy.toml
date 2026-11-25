@@ -1,0 +1,11 @@
+# BeautifulRust clippy 配置：与 Cargo.toml 的 [workspace.lints] 配套使用。
+
+# 任何带 bool 参数的函数都报警，而不只是四个及以上参数的函数。
+# bool 实参在调用点不可读（report(true)），也无法再扩展出第三种模式；
+# 改用两变体枚举或两个方法。
+max-fn-params-bools = 0
+
+# 测试里 panic 就是断言，允许 unwrap、expect 与打印。
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-print-in-tests = true

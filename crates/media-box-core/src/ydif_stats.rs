@@ -17,6 +17,11 @@ impl YdifValueSeries {
     }
 
     fn stats(&self) -> Stats {
+        #[expect(
+            clippy::as_conversions,
+            clippy::cast_precision_loss,
+            reason = "样本数远小于 2^53，转 f64 只为求均值"
+        )]
         let count = self.0.len() as f64;
         let mean = self.0.iter().sum::<f64>() / count;
         let variance = self
@@ -69,6 +74,11 @@ impl YdifValueSeries {
     }
 }
 
+/// YDIF 序列的置信度档位。
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "只有高/低两档，新增档位需同步修改代表值选择策略"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Confidence {
     /// CV ≤ 阈值：YDIF 波动稳定，可信。

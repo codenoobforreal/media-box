@@ -6,19 +6,34 @@ use std::str::FromStr;
 ///
 /// 作为库的公共错误类型，不向下游暴露 `anyhow::Error`；
 /// 需要 anyhow 的场景由 `From<ValueError> for anyhow::Error` 自动转换。
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "错误类型仅供本工作区内的二进制匹配，新增变体会在编译期暴露"
+)]
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ValueError {
+    /// 数值越界。
     #[error("{what} {value} 超出范围，必须在 {min} 到 {max} 之间。")]
     OutOfRange {
+        /// 实际传入的数值。
         value: f64,
+        /// 合法下界（含）。
         min: f64,
+        /// 合法上界（含）。
         max: f64,
+        /// 用户可读的数值名称，如「CRF 值」。
         what: &'static str,
     },
+    /// CRF 未落在 0.25 的档位上。
     #[error("CRF 值 {value} 无效，必须是 0.25 的整数倍。")]
-    InvalidCrfStep { value: f64 },
+    InvalidCrfStep {
+        /// 实际传入的 CRF。
+        value: f64,
+    },
+    /// 整数解析失败（如 preset）。
     #[error("无法解析整数 {0}")]
     ParseInt(#[from] std::num::ParseIntError),
+    /// 浮点解析失败（如 CRF、VMAF）。
     #[error("无法解析数值 {0}")]
     ParseFloat(#[from] std::num::ParseFloatError),
 }
@@ -56,6 +71,16 @@ impl ConstantRateFactor {
     const STEPS_PER_UNIT: f64 = 4.0;
 
     /// 构造 CRF 值，要求在 1~70 且为 0.25 的整数倍。
+    ///
+    /// # Errors
+    ///
+    /// 超出 1~70 或不在 0.25 档位上时返回 [`ValueError`]。
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "已校验落在 1~70，steps 必为 4~280 的非负整数，u16 不会截断或丢符号"
+    )]
     pub fn new(value: f64) -> Result<Self, ValueError> {
         ensure_range(value, 1.0, 70.0, "CRF 值")?;
 
@@ -68,6 +93,12 @@ impl ConstantRateFactor {
     }
 
     /// 四舍五入到 0.25 档并夹到合法区间：供内部「已保证在区间内」的地方使用，避免把不可能失败的错误一路 `?` 上去。
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "先夹到 1~70，换算后必为 4~280 的非负整数，u16 不会截断或丢符号"
+    )]
     pub fn snapped_clamped(value: f64) -> Self {
         Self((value.clamp(1.0, 70.0) * Self::STEPS_PER_UNIT).round() as u16)
     }
@@ -83,11 +114,17 @@ impl ConstantRateFactor {
 pub struct VmafScore(f64);
 
 impl VmafScore {
+    /// 构造目标分数，要求落在 1~100。
+    ///
+    /// # Errors
+    ///
+    /// 超出 1~100 时返回 [`ValueError`]。
     pub fn new(value: f64) -> Result<Self, ValueError> {
         ensure_range(value, 1.0, 100.0, "VMAF 分数")?;
         Ok(Self(value))
     }
 
+    /// 返回原始分数。
     pub fn as_f64(self) -> f64 {
         self.0
     }
@@ -104,11 +141,17 @@ impl Default for VmafScore {
 pub struct Quality(u8);
 
 impl Quality {
+    /// 构造质量参数，要求落在 1~100。
+    ///
+    /// # Errors
+    ///
+    /// 为 0 时返回 [`ValueError`]。
     pub fn new(value: u8) -> Result<Self, ValueError> {
         ensure_range(f64::from(value), 1.0, 100.0, "质量值")?;
         Ok(Self(value))
     }
 
+    /// 返回原始质量值。
     pub fn as_u8(self) -> u8 {
         self.0
     }
@@ -125,11 +168,17 @@ impl Default for Quality {
 pub struct FilmGrain(u8);
 
 impl FilmGrain {
+    /// 构造 film-grain 强度，要求落在 0~50。
+    ///
+    /// # Errors
+    ///
+    /// 超过 50 时返回 [`ValueError`]。
     pub fn new(value: u8) -> Result<Self, ValueError> {
         ensure_range(f64::from(value), 0.0, 50.0, "film-grain 强度")?;
         Ok(Self(value))
     }
 
+    /// 返回原始强度值。
     pub fn as_u8(self) -> u8 {
         self.0
     }
@@ -146,6 +195,11 @@ impl Default for FilmGrain {
 pub struct FrameRatePerSecond(f64);
 
 impl FrameRatePerSecond {
+    /// 构造帧率，要求落在 1~120。
+    ///
+    /// # Errors
+    ///
+    /// 超出 1~120 时返回 [`ValueError`]。
     pub fn new(value: f64) -> Result<Self, ValueError> {
         ensure_range(value, 1.0, 120.0, "帧率")?;
         Ok(Self(value))
@@ -156,6 +210,7 @@ impl FrameRatePerSecond {
         Self(value)
     }
 
+    /// 返回原始帧率。
     pub fn as_f64(self) -> f64 {
         self.0
     }
@@ -166,11 +221,17 @@ impl FrameRatePerSecond {
 pub struct EncoderPreset(u8);
 
 impl EncoderPreset {
+    /// 构造 preset，要求落在 0~13。
+    ///
+    /// # Errors
+    ///
+    /// 超过 13 时返回 [`ValueError`]。
     pub fn new(value: u8) -> Result<Self, ValueError> {
         ensure_range(f64::from(value), 0.0, 13.0, "编码 preset")?;
         Ok(Self(value))
     }
 
+    /// 返回原始 preset 值。
     pub fn as_u8(self) -> u8 {
         self.0
     }

@@ -49,6 +49,10 @@ impl SceneCutDetector {
     }
 
     /// 运行 ffmpeg scdet 并返回按时间升序的切点记录。
+    ///
+    /// # Errors
+    ///
+    /// 子进程启动或读取失败、ffmpeg 非零退出，或期间检测到取消时返回错误。
     pub fn detect_scene_cuts(&self, canceller: &Canceller) -> Result<Vec<SceneCutDetectionRecord>> {
         let mut records = Vec::new();
 

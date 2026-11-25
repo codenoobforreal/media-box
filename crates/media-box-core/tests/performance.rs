@@ -20,19 +20,22 @@ use media_box_core::scene_sampler::SceneSampler;
 fn progress_emission_is_bounded_by_min_delta() {
     let total = Duration::from_secs(600);
     let mut emitter = ProgressEmitter::new(None, total, MIN_DELTA_PERCENT);
-    let mut emitted = 0usize;
+    let mut emit_count = 0usize;
 
     // 每步推进 0.1s，共 6000 步：每步仅增加约 0.017%，远低于 0.1% 阈值。
     for step in 1..=6_000u64 {
         let sample = FfmpegProgressSample::new(step * 100_000);
         if emitter.update(sample, Duration::from_millis(100)).is_some() {
-            emitted += 1;
+            emit_count += 1;
         }
     }
 
     // 0..100 每 0.1% 一次，加一次收尾 100%：留一格浮点余量。
-    assert!(emitted <= 1_001, "发射 {emitted} 次，节流失效：UI 会被刷屏");
-    assert!(emitted >= 1, "至少应发射一次进度");
+    assert!(
+        emit_count <= 1_001,
+        "发射 {emit_count} 次，节流失效：UI 会被刷屏"
+    );
+    assert!(emit_count >= 1, "至少应发射一次进度");
 }
 
 /// 进度边界：0%/100% 各只发射一次，元数据缺时长时不产生 ETA。

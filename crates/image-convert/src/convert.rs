@@ -18,7 +18,7 @@ use std::thread;
 /// 批量转换选项。
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
-pub struct ConvertOptions {
+pub(crate) struct ConvertOptions {
     pub inputs: Vec<PathBuf>,
     pub output_dir: Option<PathBuf>,
     pub format: TargetFormat,
@@ -35,7 +35,7 @@ pub struct ConvertOptions {
 
 /// 单个文件的转换结果。
 #[derive(Debug, Clone, PartialEq)]
-pub enum ConvertOutcome {
+pub(crate) enum ConvertOutcome {
     /// 转换成功并已落盘。
     Success {
         source: PathBuf,
@@ -55,7 +55,7 @@ pub enum ConvertOutcome {
 }
 
 impl ConvertOutcome {
-    pub fn source(&self) -> &Path {
+    pub(crate) fn source(&self) -> &Path {
         match self {
             Self::Success { source, .. }
             | Self::Skipped { source, .. }
@@ -64,7 +64,7 @@ impl ConvertOutcome {
         }
     }
 
-    pub fn target(&self) -> &Path {
+    pub(crate) fn target(&self) -> &Path {
         match self {
             Self::Success { target, .. }
             | Self::Skipped { target, .. }
@@ -84,7 +84,7 @@ fn collect_images(inputs: &[impl AsRef<Path>], depth: u8) -> Result<Vec<ScannedF
 }
 
 /// 运行批量转换，返回逐文件结果（按源路径排序，保证输出稳定）。
-pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
+pub(crate) fn run(options: &ConvertOptions) -> Result<Vec<ConvertOutcome>> {
     if !options.format.can_write() {
         anyhow::bail!("目标格式 {} 不能作为输出", options.format.extension());
     }
@@ -97,17 +97,17 @@ pub fn run(options: ConvertOptions) -> Result<Vec<ConvertOutcome>> {
     let extension = options.format.extension();
 
     if options.dry_run {
-        return Ok(plan_dry_run(&images, &options, extension));
+        return Ok(plan_dry_run(&images, options, extension));
     }
 
-    Ok(run_tasks(
-        &plan_tasks(&images, &options, extension),
-        &options,
-    ))
+    Ok(run_tasks(&plan_tasks(&images, options, extension), options))
 }
 
 /// 为 --meta list 收集输入并打印每个源图片的元数据摘要，不执行转换。
-pub fn list_metadata(options: &ConvertOptions, writer: &mut impl std::io::Write) -> Result<()> {
+pub(crate) fn list_metadata(
+    options: &ConvertOptions,
+    writer: &mut impl std::io::Write,
+) -> Result<()> {
     let images = collect_images(&options.inputs, options.depth)?;
     if images.is_empty() {
         anyhow::bail!("未找到任何图片");
@@ -299,6 +299,10 @@ fn convert_one(source: &Path, target: &Path, options: &ConvertOptions) -> Result
 ///
 /// JPEG 使用可配置质量的编码器；PNG 在 optimize 时启用最高压缩，
 /// 并在 keep 模式透传 EXIF/ICC；其余格式走通用写出。
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "编码选项一一对应 CLI 开关，拆成枚举反而要在调用点重新组装"
+)]
 fn encode_to_buffer(
     image: &DynamicImage,
     format: TargetFormat,
@@ -340,13 +344,13 @@ fn encode_to_buffer(
 /// 取图像用于编码的（颜色类型，原始像素字节），保留原始位深与通道。
 fn pixel_buffer(image: &DynamicImage) -> (ExtendedColorType, Vec<u8>) {
     match image.color() {
-        ColorType::L8 => (ExtendedColorType::L8, image.to_luma8().as_raw().to_vec()),
+        ColorType::L8 => (ExtendedColorType::L8, image.to_luma8().as_raw().clone()),
         ColorType::La8 => (
             ExtendedColorType::La8,
-            image.to_luma_alpha8().as_raw().to_vec(),
+            image.to_luma_alpha8().as_raw().clone(),
         ),
-        ColorType::Rgb8 => (ExtendedColorType::Rgb8, image.to_rgb8().as_raw().to_vec()),
-        ColorType::Rgba8 => (ExtendedColorType::Rgba8, image.to_rgba8().as_raw().to_vec()),
+        ColorType::Rgb8 => (ExtendedColorType::Rgb8, image.to_rgb8().as_raw().clone()),
+        ColorType::Rgba8 => (ExtendedColorType::Rgba8, image.to_rgba8().as_raw().clone()),
         ColorType::L16 => (
             ExtendedColorType::L16,
             u16_native_bytes(image.to_luma16().as_raw()),
@@ -363,10 +367,8 @@ fn pixel_buffer(image: &DynamicImage) -> (ExtendedColorType, Vec<u8>) {
             ExtendedColorType::Rgba16,
             u16_native_bytes(image.to_rgba16().as_raw()),
         ),
-        other if other.has_alpha() => {
-            (ExtendedColorType::Rgba8, image.to_rgba8().as_raw().to_vec())
-        }
-        _ => (ExtendedColorType::Rgb8, image.to_rgb8().as_raw().to_vec()),
+        other if other.has_alpha() => (ExtendedColorType::Rgba8, image.to_rgba8().as_raw().clone()),
+        _ => (ExtendedColorType::Rgb8, image.to_rgb8().as_raw().clone()),
     }
 }
 
@@ -392,7 +394,7 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> Result<u64> {
     }
 
     match fs::rename(&temp, target) {
-        Ok(()) => Ok(bytes.len() as u64),
+        Ok(()) => Ok(u64::try_from(bytes.len()).expect("字节数不超过 u64")),
         Err(error) => {
             let _ = fs::remove_file(&temp);
             Err(error).with_context(|| format!("替换输出 {}", target.display()))
@@ -492,7 +494,7 @@ mod tests {
         write_png(&source, 4, 3);
         let out = root.join("out");
 
-        let outcomes = run(options(vec![source.clone()], Some(out.clone()))).unwrap();
+        let outcomes = run(&options(vec![source], Some(out))).unwrap();
         assert_eq!(outcomes.len(), 1);
         assert!(matches!(outcomes[0], ConvertOutcome::Success { .. }));
 
@@ -513,12 +515,12 @@ mod tests {
         let _ = fs::create_dir_all(&out);
         write_png(&out.join("photo.webp"), 9, 9);
 
-        let outcomes = run(options(vec![source.clone()], Some(out.clone()))).unwrap();
+        let outcomes = run(&options(vec![source.clone()], Some(out.clone()))).unwrap();
         assert!(matches!(outcomes[0], ConvertOutcome::Skipped { .. }));
 
-        let mut overwrite = options(vec![source.clone()], Some(out.clone()));
+        let mut overwrite = options(vec![source], Some(out));
         overwrite.overwrite = true;
-        let outcomes = run(overwrite).unwrap();
+        let outcomes = run(&overwrite).unwrap();
         assert!(matches!(outcomes[0], ConvertOutcome::Success { .. }));
 
         let _ = fs::remove_dir_all(&root);
@@ -531,9 +533,9 @@ mod tests {
         write_png(&source, 2, 2);
         let out = root.join("out");
 
-        let mut dry = options(vec![source.clone()], Some(out.clone()));
+        let mut dry = options(vec![source], Some(out));
         dry.dry_run = true;
-        let outcomes = run(dry).unwrap();
+        let outcomes = run(&dry).unwrap();
         assert!(matches!(outcomes[0], ConvertOutcome::Planned { .. }));
         assert!(!outcomes[0].target().exists());
 
@@ -549,7 +551,7 @@ mod tests {
         write_png(&good, 2, 2);
         let out = root.join("out");
 
-        let outcomes = run(options(vec![bad, good], Some(out.clone()))).unwrap();
+        let outcomes = run(&options(vec![bad, good], Some(out))).unwrap();
         assert_eq!(outcomes.len(), 2);
         assert!(
             outcomes
@@ -576,7 +578,7 @@ mod tests {
         write_png(&b.join("photo.png"), 2, 2);
         let out = root.join("out");
 
-        let outcomes = run(options(
+        let outcomes = run(&options(
             vec![a.join("photo.png"), b.join("photo.png")],
             Some(out.clone()),
         ))
@@ -601,7 +603,7 @@ mod tests {
         let mut opts = options(vec![source], Some(root.join("out")));
         opts.format = "png".parse().unwrap();
         opts.optimize = true;
-        let outcomes = run(opts).unwrap();
+        let outcomes = run(&opts).unwrap();
 
         assert_eq!(outcomes.len(), 1);
         assert!(
@@ -647,7 +649,7 @@ mod tests {
         let mut opts = options(vec![source], Some(root.join("out")));
         opts.format = "png".parse().unwrap();
         opts.metadata = MetadataMode::Keep;
-        let outcomes = run(opts).unwrap();
+        let outcomes = run(&opts).unwrap();
         assert!(matches!(outcomes[0], ConvertOutcome::Success { .. }));
 
         let metadata = crate::metadata::read_metadata(outcomes[0].target()).unwrap();
@@ -665,7 +667,7 @@ mod tests {
         let mut opts = options(vec![source], Some(root.join("out")));
         opts.format = "png".parse().unwrap();
         opts.metadata = MetadataMode::Strip;
-        let outcomes = run(opts).unwrap();
+        let outcomes = run(&opts).unwrap();
         assert!(matches!(outcomes[0], ConvertOutcome::Success { .. }));
 
         let metadata = crate::metadata::read_metadata(outcomes[0].target()).unwrap();
@@ -680,7 +682,7 @@ mod tests {
         let source = root.join("photo.png");
         write_png(&source, 2, 2);
 
-        let opts = options(vec![source.clone()], None);
+        let opts = options(vec![source], None);
         let mut out = Vec::new();
         list_metadata(&opts, &mut out).unwrap();
         let text = String::from_utf8(out).unwrap();
@@ -695,7 +697,7 @@ mod tests {
         let source = root.join("photo.png");
         write_png(&source, 2, 2);
 
-        let outcomes = run(options(vec![source], Some(root.join("out")))).unwrap();
+        let outcomes = run(&options(vec![source], Some(root.join("out")))).unwrap();
         assert_eq!(outcomes.len(), 1);
         assert!(matches!(outcomes[0], ConvertOutcome::Success { .. }));
 

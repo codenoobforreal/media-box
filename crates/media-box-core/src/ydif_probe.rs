@@ -10,6 +10,7 @@ use std::process::Command;
 use std::time::Duration;
 
 /// 对指定时间窗执行 signalstats YDIF 探测。
+#[derive(Debug)]
 pub struct YdifProbe {
     input_video_path: PathBuf,
     sample_window_start_time: Duration,
@@ -45,6 +46,10 @@ impl YdifProbe {
     }
 
     /// 运行探测并返回 YDIF 值序列。
+    ///
+    /// # Errors
+    ///
+    /// 子进程启动或读取失败、ffmpeg 非零退出，或期间检测到取消时返回错误。
     pub fn run(&self, canceller: &Canceller) -> Result<YdifValueSeries> {
         let mut ydif_values = Vec::new();
 

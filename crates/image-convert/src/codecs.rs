@@ -5,10 +5,10 @@
 use anyhow::{Context, Result};
 use image::DynamicImage;
 
-/// 按扩展名把源文件解码为 DynamicImage。
+/// 按扩展名把源文件解码为 `DynamicImage`。
 ///
 /// 常用格式（png、jpg/jpeg、gif、webp、bmp）直接交给 image。
-pub fn decode_input(source: &std::path::Path) -> Result<DynamicImage> {
+pub(crate) fn decode_input(source: &std::path::Path) -> Result<DynamicImage> {
     image::ImageReader::open(source)
         .with_context(|| format!("打开源图片 {}", source.display()))?
         .decode()

@@ -8,6 +8,16 @@
 //! `cargo bench -p media-box-core --features hotpath-alloc -- --test --exact <id>`
 //! 配合 `HOTPATH_CRITERION_ITERATIONS` 输出固定次数的剖析报告。
 
+// 基准脚手架：合成数据生成里的 `as` 与断言里的 unwrap 都是刻意的，
+// 逐行收敛只会让数据构造变难读。
+#![expect(
+    clippy::as_conversions,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::unwrap_used,
+    reason = "基准脚本只构造确定性合成数据，数值范围由构造处人眼可验证"
+)]
+
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -68,7 +78,7 @@ fn bench_progress(c: &mut Criterion) {
                 black_box(parser.push_line(line));
             }
             black_box(parser.total_size_bytes())
-        })
+        });
     });
 
     // 真实节奏：样本时间均匀推进，经过时间按 8 倍速折算。
@@ -84,7 +94,7 @@ fn bench_progress(c: &mut Criterion) {
             for sample in &samples {
                 black_box(emitter.update(*sample, elapsed_per_step));
             }
-        })
+        });
     });
 
     group.finish();
@@ -104,7 +114,7 @@ fn bench_log_parse(c: &mut Criterion) {
 
     let mut ydif_lines = Vec::with_capacity(2_000);
     for index in 0..1_000u32 {
-        ydif_lines.push(format!("frame:{index} pts:{index} pts_time:{}.5", index));
+        ydif_lines.push(format!("frame:{index} pts:{index} pts_time:{index}.5"));
         ydif_lines.push(format!(
             "lavfi.signalstats.YDIF={}",
             2.0 + f64::from(index % 100) / 50.0
@@ -127,14 +137,14 @@ fn bench_log_parse(c: &mut Criterion) {
             for line in &scdet_lines {
                 black_box(parse_scdet_log_line(line));
             }
-        })
+        });
     });
     group.bench_function("ydif", |b| {
         b.iter(|| {
             for line in &ydif_lines {
                 black_box(parse_ydif_value_from_line(line));
             }
-        })
+        });
     });
     group.finish();
 
@@ -162,14 +172,14 @@ fn bench_sampler(c: &mut Criterion) {
     let mut group = tuned(c.benchmark_group("sampler"));
     group.throughput(Throughput::Elements(records.len() as u64));
     group.bench_function("plan", |b| {
-        b.iter(|| black_box(sampler.plan_samples(black_box(&records), total)))
+        b.iter(|| black_box(sampler.plan_samples(black_box(&records), total)));
     });
     group.finish();
 
     // 回退路径只看总时长、不遍历切点，单独成组且不设吞吐量。
     let mut group = tuned(c.benchmark_group("sampler/fallback"));
     group.bench_function("no-cuts", |b| {
-        b.iter(|| black_box(sampler.fallback_samples(total)))
+        b.iter(|| black_box(sampler.fallback_samples(total)));
     });
     group.finish();
 }
@@ -186,7 +196,7 @@ fn bench_stats(c: &mut Criterion) {
             || vec![3.0, 1.0, 2.0],
             |mut data: Vec<f64>| f64_median(&mut data),
             BatchSize::SmallInput,
-        )
+        );
     });
 
     group.bench_function("median/101", |b| {
@@ -195,7 +205,7 @@ fn bench_stats(c: &mut Criterion) {
             || data.clone(),
             |mut data: Vec<f64>| f64_median(&mut data),
             BatchSize::SmallInput,
-        )
+        );
     });
 
     group.bench_function("median/10001", |b| {
@@ -203,12 +213,12 @@ fn bench_stats(c: &mut Criterion) {
             || large.clone(),
             |mut data: Vec<f64>| f64_median(&mut data),
             BatchSize::SmallInput,
-        )
+        );
     });
 
     let series = YdifValueSeries::from_values(noisy.clone());
     group.bench_function("ydif/confidence", |b| {
-        b.iter(|| black_box(series.confidence()))
+        b.iter(|| black_box(series.confidence()));
     });
 
     let series_pair = [
@@ -217,11 +227,11 @@ fn bench_stats(c: &mut Criterion) {
         YdifValueSeries::from_values(noisy),
     ];
     group.bench_function("film-grain/representative", |b| {
-        b.iter(|| black_box(representative_mean(&series_pair)))
+        b.iter(|| black_box(representative_mean(&series_pair)));
     });
 
     group.bench_function("film-grain/strength", |b| {
-        b.iter(|| black_box(film_grain_strength(7.99)))
+        b.iter(|| black_box(film_grain_strength(7.99)));
     });
 
     group.finish();
@@ -251,10 +261,10 @@ fn bench_filter(c: &mut Criterion) {
     let mut group = tuned(c.benchmark_group("filter"));
 
     group.bench_function("video-filter/reduced", |b| {
-        b.iter(|| black_box(reduced.video_filter()))
+        b.iter(|| black_box(reduced.video_filter()));
     });
     group.bench_function("video-filter/unchanged", |b| {
-        b.iter(|| black_box(unchanged.video_filter()))
+        b.iter(|| black_box(unchanged.video_filter()));
     });
     group.bench_function("is-reduced", |b| b.iter(|| black_box(reduced.is_reduced())));
 
@@ -267,10 +277,10 @@ fn bench_filter(c: &mut Criterion) {
     };
 
     group.bench_function("vmaf-graph/same-spec", |b| {
-        b.iter(|| black_box(filter_graph(VmafMeasureMode::SameSpec, spec)))
+        b.iter(|| black_box(filter_graph(VmafMeasureMode::SameSpec, spec)));
     });
     group.bench_function("vmaf-graph/full-spec", |b| {
-        b.iter(|| black_box(filter_graph(VmafMeasureMode::FullSpec, spec)))
+        b.iter(|| black_box(filter_graph(VmafMeasureMode::FullSpec, spec)));
     });
 
     group.finish();
@@ -280,13 +290,13 @@ fn bench_value(c: &mut Criterion) {
     let mut group = tuned(c.benchmark_group("value"));
 
     group.bench_function("crf/new", |b| {
-        b.iter(|| black_box(ConstantRateFactor::new(18.25)))
+        b.iter(|| black_box(ConstantRateFactor::new(18.25)));
     });
     group.bench_function("crf/parse", |b| {
-        b.iter(|| black_box("18.25".parse::<ConstantRateFactor>()))
+        b.iter(|| black_box("18.25".parse::<ConstantRateFactor>()));
     });
     group.bench_function("resolution/parse", |b| {
-        b.iter(|| black_box("1920x1080".parse::<Resolution>()))
+        b.iter(|| black_box("1920x1080".parse::<Resolution>()));
     });
 
     group.finish();
@@ -307,42 +317,13 @@ struct ScanTree {
 
 impl ScanTree {
     fn build() -> Self {
-        use std::fs;
-
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(".tmp-tests")
             .join(format!("bench-scan-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&root);
 
         let extensions = ["mp4", "mkv", "txt"];
         let mut file_count = 0usize;
-
-        fn walk(
-            dir: &Path,
-            depth: u8,
-            extensions: &[&str; 3],
-            file_count: &mut usize,
-        ) -> Result<(), std::io::Error> {
-            fs::create_dir_all(dir)?;
-            for (index, extension) in extensions.iter().enumerate() {
-                fs::write(
-                    dir.join(format!("file-{index}.{extension}")),
-                    b"benchmark payload",
-                )?;
-                *file_count += 1;
-            }
-            if depth > 0 {
-                for sub in 0..SCAN_TREE_BRANCHING as u8 {
-                    walk(
-                        &dir.join(format!("sub-{sub}")),
-                        depth - 1,
-                        extensions,
-                        file_count,
-                    )?;
-                }
-            }
-            Ok(())
-        }
 
         walk(&root, 4, &extensions, &mut file_count).expect("构建扫描基准目录树失败");
         let depth_one_file_count = extensions.len() * (1 + SCAN_TREE_BRANCHING);
@@ -353,6 +334,34 @@ impl ScanTree {
             depth_one_file_count,
         }
     }
+}
+
+/// 递归建目录与文件，统计物理文件数。
+fn walk(
+    dir: &Path,
+    depth: u8,
+    extensions: &[&str; 3],
+    file_count: &mut usize,
+) -> Result<(), std::io::Error> {
+    std::fs::create_dir_all(dir)?;
+    for (index, extension) in extensions.iter().enumerate() {
+        std::fs::write(
+            dir.join(format!("file-{index}.{extension}")),
+            b"benchmark payload",
+        )?;
+        *file_count += 1;
+    }
+    if depth > 0 {
+        for sub in 0..SCAN_TREE_BRANCHING as u8 {
+            walk(
+                &dir.join(format!("sub-{sub}")),
+                depth - 1,
+                extensions,
+                file_count,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 impl Drop for ScanTree {
@@ -416,6 +425,10 @@ impl SearchJournal for SilentJournal {
     fn warning(&mut self, _message: &str) {}
 }
 
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "基准参数组合的薄封装，distinct 对应 full_spec_is_distinct 的开关"
+)]
 fn run_search(target: f64, slope: f64, gap: f64, distinct: bool) -> f64 {
     CrfSearcher::new(VmafScore::new(target).expect("目标合法"), Resolution::Fhd)
         .search(
@@ -434,16 +447,16 @@ fn bench_crf_search(c: &mut Criterion) {
     let mut group = tuned(c.benchmark_group("crf-search"));
 
     group.bench_function("dual-spec/target-88", |b| {
-        b.iter(|| black_box(run_search(88.0, 0.8, 1.0, true)))
+        b.iter(|| black_box(run_search(88.0, 0.8, 1.0, true)));
     });
     group.bench_function("dual-spec/target-70", |b| {
-        b.iter(|| black_box(run_search(70.0, 0.8, 1.0, true)))
+        b.iter(|| black_box(run_search(70.0, 0.8, 1.0, true)));
     });
     group.bench_function("dual-spec/steep", |b| {
-        b.iter(|| black_box(run_search(88.0, 2.0, 1.0, true)))
+        b.iter(|| black_box(run_search(88.0, 2.0, 1.0, true)));
     });
     group.bench_function("single-spec/target-88", |b| {
-        b.iter(|| black_box(run_search(88.0, 0.8, 1.0, false)))
+        b.iter(|| black_box(run_search(88.0, 0.8, 1.0, false)));
     });
 
     group.finish();

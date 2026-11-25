@@ -1,6 +1,6 @@
 //! 源图片元数据读取与处理模式。
 //!
-//! 通过 image 解码器的 exif_metadata / icc_profile 接口读取原始字节，
+//! 通过 image 解码器的 `exif_metadata` / `icc_profile` 接口读取原始字节，
 //! 供 --meta list 展示与 --meta keep 透传使用。
 
 use anyhow::{Context, Result};
@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 /// 元数据处理模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum MetadataMode {
+pub(crate) enum MetadataMode {
     /// 尽力保留源元数据（仅在支持的编码器上生效）。
     #[default]
     Keep,
@@ -22,7 +22,7 @@ pub enum MetadataMode {
 
 /// 元数据处理模式解析错误。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum MetadataModeError {
+pub(crate) enum MetadataModeError {
     #[error("元数据模式 {0} 无效，可选：keep、strip、list")]
     Invalid(String),
 }
@@ -42,7 +42,7 @@ impl FromStr for MetadataMode {
 
 /// 源图片的原始元数据。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Metadata {
+pub(crate) struct Metadata {
     pub exif: Option<Vec<u8>>,
     pub icc: Option<Vec<u8>>,
 }
@@ -50,7 +50,7 @@ pub struct Metadata {
 /// 读取源图片的 EXIF 与 ICC 原始字节。
 ///
 /// 解码器不提供某类元数据时对应字段为 None；无法解码则返回错误。
-pub fn read_metadata(source: &Path) -> Result<Metadata> {
+pub(crate) fn read_metadata(source: &Path) -> Result<Metadata> {
     let mut decoder = image::ImageReader::open(source)
         .with_context(|| format!("打开源图片 {}", source.display()))?
         .into_decoder()

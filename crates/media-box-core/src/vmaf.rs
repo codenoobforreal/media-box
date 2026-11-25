@@ -10,17 +10,24 @@ use std::sync::LazyLock;
 /// 源帧率与缩放滤镜串，调用方从自己的设置里取出这四项即可。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VideoSpec<'a> {
+    /// 源视频分辨率。
     pub source_resolution: Resolution,
+    /// 输出（降规格后）分辨率。
     pub output_resolution: Resolution,
+    /// 源帧率。
     pub source_fps: FrameRatePerSecond,
     /// 与样本编码同源的滤镜链（`BitrateReduceSettings::video_filter`）。
     pub filter: Option<&'a str>,
 }
 
-static VMAF_THREADS: LazyLock<usize> = LazyLock::new(|| {
-    std::thread::available_parallelism().map_or(1, |parallelism| parallelism.get())
-});
+static VMAF_THREADS: LazyLock<usize> =
+    LazyLock::new(|| std::thread::available_parallelism().map_or(1, std::num::NonZero::get));
 
+/// VMAF 测量口径。
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "两种口径构成测量契约，新增口径必须在搜索与文档中同步定义"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VmafMeasureMode {
     /// 同规格：参考下采样到输出规格，只衡量编码损失。
@@ -30,6 +37,7 @@ pub enum VmafMeasureMode {
 }
 
 impl VmafMeasureMode {
+    /// 口径的中文名称，用于界面与日志。
     pub fn label(self) -> &'static str {
         match self {
             Self::SameSpec => "同规格",

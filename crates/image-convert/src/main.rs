@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let outcomes = convert::run(options)?;
+    let outcomes = convert::run(&options)?;
     let mut stdout = std::io::stdout().lock();
     report::report(&outcomes, &mut stdout)?;
     Ok(())

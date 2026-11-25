@@ -44,6 +44,10 @@ pub fn build_command(
 ///
 /// 优先用 `total_size` 进度行；ffmpeg 未上报时回退到输出文件的 metadata，
 /// 避免成功编码却因缺少进度字段而丢失成功报告。
+///
+/// # Errors
+///
+/// 编码进程失败、读取输出体积失败或期间检测到取消时返回错误（半成品会被清理）。
 pub fn run(
     command: Command,
     output_path: &Path,

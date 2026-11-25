@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use crate::format::format_duration_fixed;
 
+/// 进度百分比的最小变化量；低于它的更新不发射，避免刷屏。
 pub const MIN_DELTA_PERCENT: f32 = 0.1;
 
 /// 一次进度快照：完成百分比、已用时间与预计剩余时间。
@@ -25,6 +26,9 @@ impl ProgressSnapshot {
         }
     }
 
+    /// 相对上一帧的变化是否达到发射阈值。
+    ///
+    /// 首次更新、百分比越过 0 / 100 边界时总是发射；非法值一律不发射。
     pub fn should_emit(&self, previous: &Option<Self>, min_delta_percentage: f32) -> bool {
         if !self.percentage.is_finite()
             || !min_delta_percentage.is_finite()
@@ -95,7 +99,7 @@ pub struct ProgressEmitter {
 }
 
 impl ProgressEmitter {
-    /// 构造发射器；last_emitted 用于延续上一次已发射的进度。
+    /// 构造发射器；`last_emitted` 用于延续上一次已发射的进度。
     pub fn new(
         last_emitted: Option<ProgressSnapshot>,
         total_duration: Duration,
@@ -126,7 +130,7 @@ impl ProgressEmitter {
 }
 
 /// 增量解析 ffmpeg -progress 输出的解析器，在遇到 progress 行时产出样本。
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct FfmpegProgressLineParser {
     out_time_ms: Option<u64>,
     total_size_bytes: Option<u64>,
@@ -171,16 +175,16 @@ impl FfmpegProgressLineParser {
         }
     }
 
-    /// 最近一次读到的 total_size（字节）。
+    /// 最近一次读到的 `total_size（字节`）。
     pub fn total_size_bytes(&self) -> Option<u64> {
         self.total_size_bytes
     }
 }
 
-/// 一条 ffmpeg 进度样本，内部把外部的 out_time_ms 按微秒解释。
+/// 一条 ffmpeg 进度样本，内部把外部的 `out_time_ms` 按微秒解释。
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct FfmpegProgressSample {
-    /// 外部 ffmpeg key 仍然是 "out_time_ms"；内部字段明确按微秒解释
+    /// 外部 ffmpeg 的 key 是 `out_time_ms`，但取值实际按微秒解释，这里保持同一口径。
     out_time_us: u64,
 }
 
@@ -190,7 +194,7 @@ impl FfmpegProgressSample {
         Self { out_time_us }
     }
 
-    /// 完成百分比；total_duration 为 0 时返回 0.0。
+    /// 完成百分比；`total_duration` 为 0 时返回 0.0。
     pub fn percentage(&self, total_duration: Duration) -> f32 {
         if total_duration.is_zero() {
             return 0.0;
@@ -225,7 +229,7 @@ impl FfmpegProgressSample {
         })
     }
 
-    fn average_speed_x(&self, elapsed: Duration) -> f32 {
+    fn average_speed_x(self, elapsed: Duration) -> f32 {
         if elapsed.is_zero() {
             0.0
         } else {
@@ -233,7 +237,7 @@ impl FfmpegProgressSample {
         }
     }
 
-    fn out_time_duration(&self) -> Duration {
+    fn out_time_duration(self) -> Duration {
         Duration::from_micros(self.out_time_us)
     }
 }

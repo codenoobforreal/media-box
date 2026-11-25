@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 /// 参数组合校验错误：可在调用方按类型分支，展示文本只在 report 层生成。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum ValidationError {
+pub(crate) enum ValidationError {
     #[error("缺少输入：用 -i 指定源图片文件或目录")]
     MissingInput,
     #[error("缺少目标格式：用 -f 指定输出格式")]
@@ -17,9 +17,13 @@ pub enum ValidationError {
 }
 
 /// 命令行参数。
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "每个 bool 都直接对应一个 CLI 开关，合并成枚举会让参数解析与帮助文案变绕"
+)]
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Clone)]
-pub struct CliArgs {
+pub(crate) struct CliArgs {
     pub inputs: Vec<PathBuf>,
     pub output_dir: Option<PathBuf>,
     pub format: TargetFormat,
@@ -66,7 +70,7 @@ impl From<CliArgs> for ConvertOptions {
 /// | `--dry-run` | `--dry-run` | 开关 | 关 | 只列出，不写盘 |
 /// | `--optimize` | `--optimize` | 开关 | 关 | PNG 输出启用最高无损压缩 |
 /// | `--meta` | `--meta` | keep/strip/list | keep | 源元数据保留、剔除或只列出摘要 |
-pub fn command() -> Command {
+pub(crate) fn command() -> Command {
     command!()
         .version(env!("CARGO_PKG_VERSION"))
         .about("批量转换图片格式（纯 Rust，无外部编码器依赖）")
@@ -162,18 +166,17 @@ pub fn command() -> Command {
 /// 默认并发数：CPU 逻辑核数，失败时退回 1。
 fn default_jobs() -> usize {
     std::thread::available_parallelism()
-        .map_or(1, |parallelism| parallelism.get())
+        .map_or(1, std::num::NonZero::get)
         .max(1)
 }
 
 impl CliArgs {
     /// 由 clap 匹配结果构造命令行参数。
-    pub fn from_matches(matches: &clap::ArgMatches) -> Self {
+    pub(crate) fn from_matches(matches: &clap::ArgMatches) -> Self {
         Self {
             inputs: matches
                 .get_many::<PathBuf>("input")
-                .map(|values| values.cloned().collect())
-                .unwrap_or_default(),
+                .map_or_default(|values| values.cloned().collect()),
             output_dir: matches.get_one::<PathBuf>("output").cloned(),
             // --list-formats 模式下 -f 可省略，此时该字段不参与任何转换。
             format: matches
@@ -202,7 +205,7 @@ impl CliArgs {
     /// 校验参数组合，返回错误信息。
     ///
     /// --list-formats 与 --meta list 只读取信息，不需要 -f；其余转换必须显式给出 -f。
-    pub fn validate(&self) -> std::result::Result<(), ValidationError> {
+    pub(crate) fn validate(&self) -> std::result::Result<(), ValidationError> {
         if self.list_formats || self.metadata == MetadataMode::List {
             return Ok(());
         }
@@ -217,7 +220,7 @@ impl CliArgs {
 }
 
 /// 解析命令行参数。
-pub fn parse() -> CliArgs {
+pub(crate) fn parse() -> CliArgs {
     CliArgs::from_matches(&command().get_matches())
 }
 
@@ -340,7 +343,7 @@ mod tests {
     fn list_formats_needs_no_input_or_format() {
         let args = parse_from(&["image-convert", "--list-formats"]);
         assert!(args.list_formats);
-        assert!(args.inputs.is_empty());
+        assert!(args.inputs.is_empty(), "--list-formats 不需要输入");
         // -f 缺省时字段取默认值，不参与转换。
         assert_eq!(args.format, TargetFormat::default());
 

@@ -7,7 +7,7 @@ use media_box_core::value::{EncoderPreset, FrameRatePerSecond, VmafScore};
 use std::path::PathBuf;
 
 /// 顶层命令：`media-box <子命令>`。
-pub fn command() -> Command {
+pub(crate) fn command() -> Command {
     command!()
         .version(env!("CARGO_PKG_VERSION"))
         .propagate_version(true)
@@ -93,7 +93,7 @@ fn video_compress_command() -> Command {
         )
 }
 
-pub fn parse() -> CompressOptions {
+pub(crate) fn parse() -> CompressOptions {
     let matches = command().get_matches();
 
     match matches.subcommand() {
@@ -106,8 +106,7 @@ fn parse_video_compress(matches: &ArgMatches) -> CompressOptions {
     // clap 的 required(true) 已保证至少一个输入。
     let inputs = matches
         .get_many::<PathBuf>("input")
-        .map(|values| values.cloned().collect())
-        .unwrap_or_default();
+        .map_or_default(|values| values.cloned().collect());
 
     CompressOptions::new(
         inputs,
@@ -174,7 +173,10 @@ mod tests {
         assert_eq!(args.resolution, Some(Resolution::Hd));
         assert_eq!(args.output_dir, Some(PathBuf::from("out")));
         assert_eq!(args.depth, 2);
-        assert_eq!(args.fps.map(|fps| fps.as_f64()), Some(30.0));
+        assert_eq!(
+            args.fps.map(media_box_core::FrameRatePerSecond::as_f64),
+            Some(30.0)
+        );
         assert_eq!(args.preset.as_u8(), 6);
         assert_eq!(args.vmaf_score.as_f64(), 93.0);
     }

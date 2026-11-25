@@ -5,7 +5,7 @@ use std::io::{self, Write};
 
 /// 批量转换的汇总统计。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Summary {
+pub(crate) struct Summary {
     pub total: usize,
     pub succeeded: usize,
     pub skipped: usize,
@@ -17,7 +17,7 @@ pub struct Summary {
 impl Summary {
     /// 由逐文件结果汇总。
     #[must_use]
-    pub fn from_outcomes(outcomes: &[ConvertOutcome]) -> Self {
+    pub(crate) fn from_outcomes(outcomes: &[ConvertOutcome]) -> Self {
         let mut summary = Self {
             total: outcomes.len(),
             ..Self::default()
@@ -37,7 +37,7 @@ impl Summary {
     }
 
     /// 输出一行汇总。
-    pub fn print(&self, writer: &mut impl Write) -> io::Result<()> {
+    pub(crate) fn print(&self, writer: &mut impl Write) -> io::Result<()> {
         writeln!(
             writer,
             "总计 {} 个：成功 {}，跳过 {}，失败 {}，计划 {}，输出 {} 字节",
@@ -47,7 +47,7 @@ impl Summary {
 }
 
 /// 逐文件打印结果，最后输出汇总。
-pub fn report(outcomes: &[ConvertOutcome], writer: &mut impl Write) -> io::Result<()> {
+pub(crate) fn report(outcomes: &[ConvertOutcome], writer: &mut impl Write) -> io::Result<()> {
     for outcome in outcomes {
         match outcome {
             ConvertOutcome::Success { bytes, .. } => {

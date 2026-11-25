@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 输出基名：`<输出目录或源目录>/<源文件名去扩展名>`。
+///
+/// # Errors
+///
+/// 源文件名不是合法 UTF-8、无法创建输出目录或取不到源目录时返回错误。
 pub fn output_base_path(video: &Path, output_dir: Option<&Path>) -> Result<PathBuf> {
     let stem = video
         .file_stem()
@@ -30,6 +34,10 @@ pub fn output_base_path(video: &Path, output_dir: Option<&Path>) -> Result<PathB
 }
 
 /// 最终文件名：`<基名>-<yymmddHHMMSS>.mp4`。时间戳由调用方注入，便于测试。
+///
+/// # Errors
+///
+/// 基名不是合法 UTF-8 或检查路径是否存在失败时返回错误。
 pub fn final_output_path(base: &Path, unix_seconds: u64) -> Result<PathBuf> {
     let stem = base
         .file_name()
@@ -59,6 +67,7 @@ pub fn final_output_path(base: &Path, unix_seconds: u64) -> Result<PathBuf> {
     }
 }
 
+/// 当前 Unix 时间戳（秒）；系统时钟早于纪元时退回 0。
 pub fn now_unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -70,7 +79,10 @@ pub fn now_unix_seconds() -> u64 {
 /// 只解决批次内冲突，不检查磁盘上是否已存在；是否跳过已存在文件由调用方决定。
 /// 典型用法：主线程先为整批预留输出路径，再分发并发任务。
 #[must_use]
-pub fn collision_free(desired: &Path, taken: &mut HashSet<PathBuf>) -> PathBuf {
+pub fn collision_free<H: std::hash::BuildHasher>(
+    desired: &Path,
+    taken: &mut HashSet<PathBuf, H>,
+) -> PathBuf {
     if taken.insert(desired.to_path_buf()) {
         return desired.to_path_buf();
     }

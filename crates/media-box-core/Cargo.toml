@@ -14,8 +14,11 @@ ctrlc = { workspace = true, optional = true }
 thiserror.workspace = true
 
 [dev-dependencies]
-criterion.workspace = true
-hotpath.workspace = true
+# 仅基准使用，不进入任何正式构建。
+# criterion 固定 0.7：0.8 在 windows/unix 上无条件依赖 alloca（C 编译），0.7 无此依赖。
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+# 只开 Criterion 适配层；剖析能力（hotpath / hotpath-alloc / hotpath-callgrind）由本 crate 的 feature 按需转发。
+hotpath = { version = "0.33", default-features = false, features = ["criterion-0-7"] }
 
 [[bench]]
 name = "media_box_core"

@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 /// 目标格式解析错误。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum FormatError {
+pub(crate) enum FormatError {
     #[error("不支持的图片格式：{0}")]
     Unsupported(String),
 }
@@ -68,7 +68,7 @@ struct StandardSpec {
 ///
 /// 由内置格式表派生（规范扩展名 + 别名），不再单独维护清单；
 /// 显式传入的文件不受此清单限制。
-pub fn image_extensions() -> Vec<&'static str> {
+pub(crate) fn image_extensions() -> Vec<&'static str> {
     let mut extensions: Vec<&'static str> = Vec::new();
     for spec in STANDARD_TABLE {
         for extension in std::iter::once(spec.extension).chain(spec.aliases.iter().copied()) {
@@ -82,9 +82,9 @@ pub fn image_extensions() -> Vec<&'static str> {
 
 /// 输出目标格式。
 ///
-/// 委托给 image::ImageFormat，全部可写。
+/// 委托给 `image::ImageFormat`，全部可写。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TargetFormat {
+pub(crate) enum TargetFormat {
     Standard(ImageFormat),
 }
 
@@ -98,13 +98,13 @@ impl TargetFormat {
 
     /// 规范扩展名（不含点）。
     #[must_use]
-    pub fn extension(self) -> &'static str {
+    pub(crate) fn extension(self) -> &'static str {
         self.spec().map_or("", |spec| spec.extension)
     }
 
     /// 目标格式在当前编译特性下是否可写。
     #[must_use]
-    pub fn can_write(self) -> bool {
+    pub(crate) fn can_write(self) -> bool {
         match self {
             Self::Standard(format) => format.can_write(),
         }
@@ -112,7 +112,7 @@ impl TargetFormat {
 
     /// `-q` 质量参数是否对该输出格式生效；由格式表的编码策略决定。
     #[must_use]
-    pub fn supports_quality(self) -> bool {
+    pub(crate) fn supports_quality(self) -> bool {
         matches!(self.encoder(), Encoder::Jpeg)
     }
 
@@ -146,9 +146,9 @@ impl FromStr for TargetFormat {
 }
 
 /// 向 writer 打印输出格式清单（--list-formats）。
-pub fn print_capabilities(writer: &mut impl std::io::Write) -> std::io::Result<()> {
+pub(crate) fn print_capabilities(writer: &mut impl std::io::Write) -> std::io::Result<()> {
     writeln!(writer, "输出格式（-f 编码目标）:")?;
-    for spec in STANDARD_TABLE.iter() {
+    for spec in STANDARD_TABLE {
         let target = TargetFormat::Standard(spec.format);
         let quality = if target.supports_quality() {
             "有损，-q 生效"
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn quality_support_is_derived_from_the_encoder() {
         // 能力矩阵与编码策略必须同源：只有 Jpeg 策略才声称 -q 生效。
-        for spec in STANDARD_TABLE.iter() {
+        for spec in STANDARD_TABLE {
             let target = TargetFormat::Standard(spec.format);
             assert_eq!(
                 target.supports_quality(),
@@ -248,7 +248,7 @@ mod tests {
         let extensions = image_extensions();
 
         // 每个规范扩展名与别名都在扫描集合中。
-        for spec in STANDARD_TABLE.iter() {
+        for spec in STANDARD_TABLE {
             assert!(
                 extensions.contains(&spec.extension),
                 "缺少 {}",

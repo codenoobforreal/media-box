@@ -12,13 +12,13 @@ static COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// 工作区内的临时测试目录；离开作用域时自动删除。
 #[derive(Debug)]
-pub struct TestDir {
+pub(crate) struct TestDir {
     path: PathBuf,
 }
 
 impl TestDir {
     /// 在仓库内的 `.tmp-tests/` 下创建唯一临时目录。
-    pub fn new(name: &str) -> Self {
+    pub(crate) fn new(name: &str) -> Self {
         let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(".tmp-tests")

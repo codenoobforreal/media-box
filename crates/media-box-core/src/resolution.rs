@@ -25,19 +25,34 @@ pub enum Resolution {
     /// 720x1280 (720p 竖屏)
     Vhd,
     /// 自定义分辨率
-    Arbitrary { width: u16, height: u16 },
+    Arbitrary {
+        /// 像素宽度。
+        width: u16,
+        /// 像素高度。
+        height: u16,
+    },
 }
 
+/// 分辨率解析错误。
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "错误类型只在同一工作区内使用，新增变体会在编译期直接暴露给下游"
+)]
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ResolutionError {
+    /// 宽或高为 0。
     #[error("宽或高不能为 0")]
     Zero,
+    /// 缺少 `x` 一类分隔符。
     #[error("缺少分隔符")]
     NoDelimiterX,
+    /// 分隔符前没有宽度。
     #[error("缺少宽度")]
     MissingWidth,
+    /// 分隔符后没有高度。
     #[error("缺少高度")]
     MissingHeight,
+    /// 宽或高不是合法的 u16。
     #[error("解析 {0} 失败")]
     Parse(String),
 }
@@ -75,6 +90,11 @@ impl FromStr for Resolution {
 }
 
 impl Resolution {
+    /// 由像素宽高构造分辨率，已知尺寸归一化为对应枚举变体。
+    ///
+    /// # Errors
+    ///
+    /// 宽或高为 0 时返回 [`ResolutionError::Zero`]。
     pub fn new(width: u16, height: u16) -> std::result::Result<Self, ResolutionError> {
         if width == 0 || height == 0 {
             return Err(ResolutionError::Zero);
@@ -93,10 +113,12 @@ impl Resolution {
         })
     }
 
+    /// 像素总数。
     pub fn pixels(self) -> u32 {
         u32::from(self.width()) * u32::from(self.height())
     }
 
+    /// 像素宽度。
     pub fn width(self) -> u16 {
         match self {
             Self::Uhd => 3_840,
@@ -111,6 +133,7 @@ impl Resolution {
         }
     }
 
+    /// 像素高度。
     pub fn height(self) -> u16 {
         match self {
             Self::Uhd => 2_160,
@@ -127,7 +150,7 @@ impl Resolution {
 }
 
 impl fmt::Display for Resolution {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Uhd => write!(f, "3840x2160"),
             Self::Vuhd => write!(f, "2160x3840"),

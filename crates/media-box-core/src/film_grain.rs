@@ -9,6 +9,8 @@ use crate::ydif_stats::{film_grain_strength, representative_mean};
 use anyhow::Result;
 use std::path::Path;
 
+/// film-grain 强度计算器：逐样本探测 YDIF 并汇总为代表值。
+#[derive(Debug)]
 pub struct FilmGrainCalculator<'a> {
     input_video_path: &'a Path,
     scene_samples: &'a [SceneSample],
@@ -16,6 +18,7 @@ pub struct FilmGrainCalculator<'a> {
 }
 
 impl<'a> FilmGrainCalculator<'a> {
+    /// 用源视频、场景样本与事件上报方构造计算器。
     pub fn new(
         input_video_path: &'a Path,
         scene_samples: &'a [SceneSample],
@@ -28,6 +31,11 @@ impl<'a> FilmGrainCalculator<'a> {
         }
     }
 
+    /// 逐样本探测并汇总 film-grain 强度；全部样本失效时退回默认值。
+    ///
+    /// # Errors
+    ///
+    /// 用户取消时返回带 [`Cancelled`] 的错误；其余样本级失败只记警告并跳过。
     pub fn calculate(&self, canceller: &Canceller) -> Result<FilmGrain> {
         let mut series = Vec::with_capacity(self.scene_samples.len());
 

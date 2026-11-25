@@ -18,13 +18,19 @@ const VIDEO_EXTENSIONS: [&str; 25] = [
 /// 显式传入文件的根是其所在目录。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScannedFile {
+    /// 文件的绝对路径。
     pub path: PathBuf,
+    /// 文件所属的输入根目录，用于镜像输出目录结构。
     pub root: PathBuf,
 }
 
 /// 收集所有起始路径下的视频文件。
 ///
 /// - Some(0)：只看当前目录；Some(n)：最多递归 n 层；None：不限层级。
+///
+/// # Errors
+///
+/// 解析输入绝对路径或读取目录失败时返回错误。
 pub fn collect_videos(paths: &[impl AsRef<Path>], max_depth: Option<u8>) -> Result<Vec<PathBuf>> {
     Ok(collect_files(paths, &VIDEO_EXTENSIONS, max_depth)?
         .into_iter()
@@ -38,6 +44,10 @@ pub fn collect_videos(paths: &[impl AsRef<Path>], max_depth: Option<u8>) -> Resu
 /// - 目录内容按 extensions（小写）筛选；
 /// - 符号链接跳过，重复路径去重；
 /// - Some(0)：只看当前目录；Some(n)：最多递归 n 层；None：不限层级。
+///
+/// # Errors
+///
+/// 解析输入绝对路径或读取目录失败时返回错误。
 pub fn collect_files(
     inputs: &[impl AsRef<Path>],
     extensions: &[&str],
@@ -61,8 +71,7 @@ pub fn collect_files(
         } else if metadata.is_file() {
             let root = absolute
                 .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from("."));
+                .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
             file_roots.push(ScannedFile {
                 path: absolute,
                 root,

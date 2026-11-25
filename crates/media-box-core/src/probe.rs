@@ -10,6 +10,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+/// 源视频的元数据：分辨率、帧率、时长与体积。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SourceMeta {
     resolution: Resolution,
@@ -19,6 +20,7 @@ pub struct SourceMeta {
 }
 
 impl SourceMeta {
+    /// 由各字段直接构造。
     pub fn new(
         resolution: Resolution,
         fps: FrameRatePerSecond,
@@ -33,23 +35,32 @@ impl SourceMeta {
         }
     }
 
+    /// 视频分辨率。
     pub fn resolution(self) -> Resolution {
         self.resolution
     }
 
+    /// 平均帧率。
     pub fn fps(self) -> FrameRatePerSecond {
         self.fps
     }
 
+    /// 时长。
     pub fn duration(self) -> Duration {
         self.duration
     }
 
+    /// 文件体积。
     pub fn size(self) -> ByteSize {
         self.size
     }
 }
 
+/// 用 ffprobe 读取源视频元数据。
+///
+/// # Errors
+///
+/// ffprobe 不可用、进程失败或缺少必需字段（width / height / size / 帧率）时返回错误。
 pub fn read_metadata(path: &Path, canceller: &Canceller) -> Result<SourceMeta> {
     let mut raw = ProbeRaw::default();
     let output = process::run(probe_command(path), canceller, |stream, line| {

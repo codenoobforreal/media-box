@@ -5,6 +5,7 @@ use crossterm::cursor::MoveTo;
 use crossterm::queue;
 use crossterm::style::{Attribute, Color, ResetColor, SetAttribute, SetForegroundColor};
 use crossterm::terminal::{BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate, size};
+use std::fmt::Write as _;
 use std::io::{BufWriter, Write, stdout};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
@@ -23,12 +24,15 @@ const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 const MIN_RULE_WIDTH: u16 = 24;
 const MAX_RULE_WIDTH: u16 = 120;
 
+/// 终端仪表盘：持有事件发送端与渲染线程句柄。
+#[derive(Debug)]
 pub struct Ui {
     reporter: Reporter,
     renderer: JoinHandle<()>,
 }
 
 impl Ui {
+    /// 启动渲染线程，返回可发送事件的界面句柄。
     pub fn install(queue: &[PathBuf]) -> Self {
         let (sender, receiver) = channel();
         let renderer = spawn_renderer(receiver, queue.to_vec());
@@ -39,11 +43,16 @@ impl Ui {
         }
     }
 
+    /// 取事件发送端。
     pub fn reporter(&self) -> &Reporter {
         &self.reporter
     }
 
     /// 通知渲染线程收尾，并等待总结页输出完成。
+    ///
+    /// # Errors
+    ///
+    /// 渲染线程 panic 时返回错误。
     pub fn shutdown(self) -> Result<()> {
         self.reporter.send(Event::Finished);
         drop(self.reporter);
@@ -62,7 +71,8 @@ fn spawn_renderer(receiver: Receiver<Event>, queue: Vec<PathBuf>) -> JoinHandle<
 
         loop {
             match receiver.recv_timeout(RENDER_INTERVAL) {
-                Ok(Event::Finished) => {
+                // 批次结束与发送端断开都意味着没有后续事件，渲染最后一张总结页即可。
+                Ok(Event::Finished) | Err(RecvTimeoutError::Disconnected) => {
                     context.finished = true;
                     context.render(&mut writer, SPINNER[0]);
                     break;
@@ -75,11 +85,6 @@ fn spawn_renderer(receiver: Receiver<Event>, queue: Vec<PathBuf>) -> JoinHandle<
                 Err(RecvTimeoutError::Timeout) => {
                     frame += 1;
                     context.render(&mut writer, SPINNER[frame % SPINNER.len()]);
-                }
-                Err(RecvTimeoutError::Disconnected) => {
-                    context.finished = true;
-                    context.render(&mut writer, SPINNER[0]);
-                    break;
                 }
             }
         }
@@ -234,7 +239,7 @@ impl RenderContext {
         );
 
         if !self.warnings.is_empty() {
-            footer.push_str(&format!(" · 警告 {}", self.warnings.len()));
+            let _ = write!(footer, " · 警告 {}", self.warnings.len());
         }
 
         if self.cancelled {
@@ -347,6 +352,10 @@ impl RenderContext {
     }
 }
 
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "渲染辅助函数，bold 只是排版开关，抽出枚举反而更绕"
+)]
 fn styled<W: Write>(writer: &mut W, color: Color, bold: bool, text: &str) {
     let _ = queue!(writer, SetForegroundColor(color));
 

@@ -22,6 +22,11 @@ impl fmt::Display for ByteSize {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
 
+        #[expect(
+            clippy::as_conversions,
+            clippy::cast_precision_loss,
+            reason = "仅用于展示，超过 2^53 字节的体积换算误差不可见"
+        )]
         let mut value = self.0 as f64;
         let mut unit = 0;
 

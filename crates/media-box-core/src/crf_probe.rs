@@ -15,19 +15,29 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// 构造 ProbeContext 的入参集合，避免构造函数参数过多。
+/// 构造 `ProbeContext` 的入参集合，避免构造函数参数过多。
+#[derive(Debug)]
 pub struct ProbeContextParams<'a> {
+    /// 源视频路径。
     pub input: &'a Path,
+    /// 临时输出基名（派生样本文件与日志目录）。
     pub base_output: &'a Path,
+    /// 分辨率 / 帧率缩减设置。
     pub settings: BitrateReduceSettings,
+    /// SVT-AV1 preset。
     pub preset: EncoderPreset,
+    /// 已测得的颗粒强度。
     pub film_grain: FilmGrain,
+    /// 场景样本列表。
     pub samples: &'a [SceneSample],
+    /// 取消状态。
     pub canceller: &'a Canceller,
+    /// 事件上报方。
     pub reporter: &'a Reporter,
 }
 
 /// 一次 CRF 搜索所需的全部输入与状态。
+#[derive(Debug)]
 pub struct ProbeContext<'a> {
     input: &'a Path,
     base_output: &'a Path,
@@ -41,6 +51,10 @@ pub struct ProbeContext<'a> {
 
 impl<'a> ProbeContext<'a> {
     /// 由入参集合构造上下文。
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "入参集合刻意按值接收，调用点一次性交出全部字段，无需生命周期标注"
+    )]
     pub fn new(params: ProbeContextParams<'a>) -> Self {
         let ProbeContextParams {
             input,
@@ -91,7 +105,8 @@ fn build_vmaf_command(
         .build()
 }
 
-/// 采样测分器：把每个场景样本编码后用 libvmaf 测分，实现 SampleMeasurer。
+/// 采样测分器：把每个场景样本编码后用 libvmaf 测分，实现 `SampleMeasurer`。
+#[derive(Debug)]
 pub struct SampleProbe<'a> {
     context: ProbeContext<'a>,
     filters: [String; 2],
@@ -287,6 +302,7 @@ impl SampleMeasurer for SampleProbe<'_> {
 }
 
 /// 搜索日志适配器：把轮次、备注与警告转发给 Reporter。
+#[derive(Debug)]
 pub struct Journal<'a> {
     reporter: &'a Reporter,
 }

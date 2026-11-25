@@ -21,6 +21,7 @@ const FINAL_CHECK_TOLERANCE: f64 = 0.5;
 /// 区间宽度收缩到这个量级时停止：网格步长是 0.25，再分下去已无意义。
 const MIN_SEARCH_SPAN: f64 = 0.5;
 
+/// CRF 搜索的初始区间与当前区间。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CrfRange {
     low: ConstantRateFactor,
@@ -28,14 +29,17 @@ pub struct CrfRange {
 }
 
 impl CrfRange {
+    /// 由上下界构造区间。
     pub fn new(low: ConstantRateFactor, high: ConstantRateFactor) -> Self {
         Self { low, high }
     }
 
+    /// 下界（画质更好的一侧）。
     pub fn low(self) -> ConstantRateFactor {
         self.low
     }
 
+    /// 上界（压缩率更高的一侧）。
     pub fn high(self) -> ConstantRateFactor {
         self.high
     }
@@ -57,9 +61,14 @@ pub fn suggest_crf_range(resolution: Resolution) -> CrfRange {
     )
 }
 
+/// 测量某个 CRF 在指定口径下的 VMAF 分数。
 pub trait SampleMeasurer {
     /// `Ok(None)` 表示本次测量失败但可以继续（例如样本编码失败），
     /// `Err` 表示必须中止（例如用户取消）。
+    ///
+    /// # Errors
+    ///
+    /// 取消或不可恢复的测量错误原样上抛，由调用方决定是中止还是降级。
     fn measure(&mut self, crf: ConstantRateFactor, mode: VmafMeasureMode) -> Result<Option<f64>>;
     /// 全规格与同规格是否是两次**不同**的测量。
     ///
@@ -72,9 +81,13 @@ pub trait SampleMeasurer {
     }
 }
 
+/// 搜索过程的日志接收方：每轮测量与关键决策都会回调。
 pub trait SearchJournal {
+    /// 记录一轮测量结果。
     fn round(&mut self, round: u8, crf: ConstantRateFactor, score: f64);
+    /// 记录一条过程说明。
     fn note(&mut self, message: &str);
+    /// 记录一条不中断搜索的警告。
     fn warning(&mut self, message: &str);
 }
 
@@ -184,6 +197,7 @@ pub struct CrfSearcher {
 }
 
 impl CrfSearcher {
+    /// 按目标分数与输出分辨率创建搜索器，初始区间由 [`suggest_crf_range`] 给出。
     pub fn new(target_score: VmafScore, resolution: Resolution) -> Self {
         let range = suggest_crf_range(resolution);
 
@@ -197,6 +211,7 @@ impl CrfSearcher {
         }
     }
 
+    /// 当前搜索区间。
     pub fn bounds(&self) -> CrfRange {
         CrfRange::new(self.low, self.high)
     }
@@ -204,6 +219,10 @@ impl CrfSearcher {
     /// 探测两端点：记录同规格分、补标定，判定是否可直接采用边界 CRF。
     ///
     /// 返回 `(结论, 已用轮次)`：轮次经返回值带回，避免 `&mut u8` 出参。
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "私有探测函数，dual_spec 只表示是否追加全规格核对"
+    )]
     fn probe_endpoints(
         &mut self,
         measurer: &mut impl SampleMeasurer,
@@ -270,6 +289,11 @@ impl CrfSearcher {
         Ok((EndpointDecision::Continue, round))
     }
 
+    /// 执行搜索，返回选定 CRF。
+    ///
+    /// # Errors
+    ///
+    /// 测量过程返回 `Err`（如用户取消）时原样上抛。
     pub fn search(
         mut self,
         measurer: &mut impl SampleMeasurer,
@@ -389,7 +413,7 @@ impl CrfSearcher {
     }
 
     fn next_crf(&self, same_spec_target: f64) -> ConstantRateFactor {
-        let bisect_mid = (self.low.as_f64() + self.high.as_f64()) / 2.0;
+        let bisect_mid = f64::midpoint(self.low.as_f64(), self.high.as_f64());
 
         let Some((interpolated, previous_crf)) = self.interpolation(same_spec_target) else {
             return ConstantRateFactor::snapped_clamped(bisect_mid);
@@ -417,8 +441,10 @@ impl CrfSearcher {
     /// 二分中点可能恰好是上一次测过的 CRF，此时区间不会收缩，
     /// 循环会原地打转到轮次上限，每一轮都是一次真实的编码 + 测量。
     fn fallback_candidate(&self, previous_crf: ConstantRateFactor) -> ConstantRateFactor {
-        let mid =
-            ConstantRateFactor::snapped_clamped((self.low.as_f64() + self.high.as_f64()) / 2.0);
+        let mid = ConstantRateFactor::snapped_clamped(f64::midpoint(
+            self.low.as_f64(),
+            self.high.as_f64(),
+        ));
         let low = self.low;
         let high = self.high;
 

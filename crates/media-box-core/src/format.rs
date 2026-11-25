@@ -9,12 +9,12 @@ pub fn format_duration_fixed(duration: Duration) -> String {
     let hours = (total_secs % 86_400) / 3_600;
     let minutes = (total_secs % 3_600) / 60;
     let seconds = total_secs % 60;
-    format!("{:02}:{:02}:{:02}:{:02}", days, hours, minutes, seconds)
+    format!("{days:02}:{hours:02}:{minutes:02}:{seconds:02}")
 }
 
 /// 把 Unix 时间戳格式化为 UTC 的 `yymmddHHMMSS`，避免为输出文件名引入时间库。
 pub fn format_unix_timestamp_compact(unix_seconds: u64) -> String {
-    let days = (unix_seconds / 86_400) as i64;
+    let days = (unix_seconds / 86_400).cast_signed();
     let seconds_of_day = unix_seconds % 86_400;
     let (year, month, day) = civil_from_days(days);
     let hour = seconds_of_day / 3_600;
@@ -32,17 +32,27 @@ pub fn format_unix_timestamp_compact(unix_seconds: u64) -> String {
     )
 }
 
-/// 由「1970-01-01 起的天数」还原公历日期（Howard Hinnant 的 civil_from_days）。
+/// 由「1970-01-01 起的天数」还原公历日期（Howard Hinnant 的 `civil_from_days`）。
 fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
     let z = days_since_epoch + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let day_of_era = (z - era * 146_097) as u64;
+    let day_of_era = (z - era * 146_097).cast_unsigned();
     let year_of_era =
         (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let year = year_of_era as i64 + era * 400;
+    let year = year_of_era.cast_signed() + era * 400;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_prime = (5 * day_of_year + 2) / 153;
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        reason = "公历日期中的日必在 1~31，u32 足够"
+    )]
     let day = (day_of_year - (153 * month_prime + 2) / 5 + 1) as u32;
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        reason = "公历月份必在 1~12，u32 足够"
+    )]
     let month = if month_prime < 10 {
         month_prime + 3
     } else {
@@ -67,7 +77,7 @@ mod tests {
         );
         // 1d 1h
         assert_eq!(
-            format_duration_fixed(Duration::from_secs(90_000)),
+            format_duration_fixed(Duration::from_hours(25)),
             "01:01:00:00"
         );
         // 亚秒被丢弃

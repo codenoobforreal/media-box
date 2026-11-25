@@ -9,16 +9,26 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 /// 单个视频的流水线阶段，枚举顺序即执行顺序。
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "阶段集合与 UI 严格同源，新增阶段应强制所有渲染与调度处同步更新"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Stage {
+    /// 读取元数据（分辨率、帧率、时长、体积）。
     Metadata,
+    /// 场景切点检测与样本规划。
     SceneSampling,
+    /// 颗粒强度（YDIF）分析。
     FilmGrain,
+    /// CRF 搜索与 VMAF 测量。
     CrfSearch,
+    /// 按选定 CRF 正式编码。
     Encode,
 }
 
 impl Stage {
+    /// 全部阶段，按执行顺序排列。
     pub const ALL: [Stage; 5] = [
         Stage::Metadata,
         Stage::SceneSampling,
@@ -27,6 +37,7 @@ impl Stage {
         Stage::Encode,
     ];
 
+    /// 阶段在终端界面上显示的名称。
     pub fn label(self) -> &'static str {
         match self {
             Self::Metadata => "读取元数据",
@@ -66,22 +77,28 @@ impl SuccessReport {
         }
     }
 
-    fn output_src_size_percentage(&self) -> f32 {
+    fn output_src_size_percentage(&self) -> f64 {
         let src = self.src_size.as_u64();
 
         if src == 0 {
             return 100.0;
         }
 
-        self.output_size.as_u64() as f32 / src as f32 * 100.0
+        #[expect(
+            clippy::as_conversions,
+            clippy::cast_precision_loss,
+            reason = "仅用于展示百分比，u64 超过 2^53 的体积在 f64 中的误差不可见"
+        )]
+        let percentage = self.output_size.as_u64() as f64 / src as f64 * 100.0;
+        percentage
     }
 
-    fn compress_src_duration_percentage(&self) -> f32 {
+    fn compress_src_duration_percentage(&self) -> f64 {
         if self.src_duration.is_zero() {
             return 100.0;
         }
 
-        self.compress_duration.div_duration_f32(self.src_duration) * 100.0
+        self.compress_duration.div_duration_f64(self.src_duration) * 100.0
     }
 }
 
@@ -93,38 +110,58 @@ impl fmt::Display for SuccessReport {
             "{} → {}  |  {}  |  {} → {}  |  {}",
             self.src_size,
             self.output_size,
-            ratio_arrow(self.output_src_size_percentage() as f64),
+            ratio_arrow(self.output_src_size_percentage()),
             format_duration_fixed(self.src_duration),
             format_duration_fixed(self.compress_duration),
-            ratio_arrow(self.compress_src_duration_percentage() as f64),
+            ratio_arrow(self.compress_src_duration_percentage()),
         )
     }
 }
 
 /// 流水线事件：阶段推进、进度、结果与汇总，由 Reporter 发送给渲染方。
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "事件集合由本库与终端渲染层共同约定，新增事件应强制渲染层同步处理"
+)]
+#[derive(Debug)]
 pub enum Event {
+    /// 开始处理某个文件。
     JobStarted(PathBuf),
+    /// 切换阶段，`detail` 是阶段行上的附加说明。
     Stage {
+        /// 当前阶段。
         stage: Stage,
+        /// 附加说明，如「CRF 32.00 · 样本 2/3」。
         detail: Option<String>,
     },
+    /// 阶段内的临时说明，只影响当前阶段行。
     Note(String),
+    /// 一次进度快照。
     Progress(ProgressSnapshot),
+    /// 单个文件处理完成，`report` 为 `None` 表示未产生新文件（如已跳过）。
     JobCompleted {
+        /// 源文件路径。
         path: PathBuf,
+        /// 成功摘要。
         report: Option<SuccessReport>,
     },
+    /// 单个文件处理失败。
     JobFailed {
+        /// 源文件路径。
         path: PathBuf,
+        /// 用户可读的错误文本。
         error: String,
     },
+    /// 一条不中断处理的警告。
     Warning(String),
+    /// 用户取消了整个批次。
     Cancelled,
+    /// 批次结束。
     Finished,
 }
 
 /// 事件发送方：把压缩过程中的状态变化发给 UI。
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Reporter {
     sender: Sender<Event>,
 }
@@ -171,10 +208,12 @@ impl Reporter {
         self.send(Event::Warning(message.into()));
     }
 
+    /// 通知某个文件处理完成。
     pub fn job_completed(&self, path: PathBuf, report: Option<SuccessReport>) {
         self.send(Event::JobCompleted { path, report });
     }
 
+    /// 通知某个文件处理失败。
     pub fn job_failed(&self, path: PathBuf, error: impl Into<String>) {
         self.send(Event::JobFailed {
             path,
@@ -182,10 +221,12 @@ impl Reporter {
         });
     }
 
+    /// 通知用户取消了批次。
     pub fn cancelled(&self) {
         self.send(Event::Cancelled);
     }
 
+    /// 发送任意事件；接收端已关闭时静默丢弃。
     pub fn send(&self, event: Event) {
         let _ = self.sender.send(event);
     }
