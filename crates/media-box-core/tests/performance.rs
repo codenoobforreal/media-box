@@ -9,7 +9,9 @@
 
 use std::time::Duration;
 
-use media_box_core::progress::{FfmpegProgressSample, MIN_DELTA_PERCENT, ProgressEmitter};
+use media_box_core::progress::{
+    FfmpegProgressSample, MIN_DELTA_PERCENT, ProgressEmitter, ProgressSnapshot,
+};
 use media_box_core::scene_detect::SceneCutDetectionRecord;
 use media_box_core::scene_sampler::SceneSampler;
 
@@ -31,6 +33,47 @@ fn progress_emission_is_bounded_by_min_delta() {
     // 0..100 每 0.1% 一次，加一次收尾 100%：留一格浮点余量。
     assert!(emitted <= 1_001, "发射 {emitted} 次，节流失效：UI 会被刷屏");
     assert!(emitted >= 1, "至少应发射一次进度");
+}
+
+/// 进度边界：0%/100% 各只发射一次，元数据缺时长时不产生 ETA。
+#[test]
+fn progress_boundaries_are_stable() {
+    let total = Duration::from_secs(10);
+    let mut emitter = ProgressEmitter::new(None, total, MIN_DELTA_PERCENT);
+
+    let start = emitter
+        .update(FfmpegProgressSample::new(0), Duration::from_secs(1))
+        .expect("首次更新必须发射");
+    assert_eq!(start.percentage(), 0.0);
+
+    // 0% 重复上报不应再次发射（节流且无正向进展）。
+    assert!(
+        emitter
+            .update(FfmpegProgressSample::new(0), Duration::from_secs(2))
+            .is_none()
+    );
+
+    let end = emitter
+        .update(
+            FfmpegProgressSample::new(10_000_000),
+            Duration::from_secs(10),
+        )
+        .expect("100% 必须发射");
+    assert_eq!(end.percentage(), 100.0);
+    assert_eq!(end.eta(), Some(Duration::ZERO));
+
+    // 总时长缺失时百分比恒为 0，且不估算 ETA。
+    let mut no_duration = ProgressEmitter::new(None, Duration::ZERO, MIN_DELTA_PERCENT);
+    let snapshot = no_duration
+        .update(FfmpegProgressSample::new(5_000_000), Duration::from_secs(1))
+        .expect("首次更新必须发射");
+    assert_eq!(snapshot.percentage(), 0.0);
+    assert_eq!(snapshot.eta(), None);
+
+    // should_emit 对非法输入必须拒绝，避免 NaN 污染 UI。
+    let valid = ProgressSnapshot::new(50.0, Duration::ZERO, None);
+    assert!(!valid.should_emit(&None, f32::NAN));
+    assert!(!valid.should_emit(&None, -0.1));
 }
 
 /// 大量有效场景时只取少量样本：每个样本都意味着一次编码 + 一次 VMAF。
