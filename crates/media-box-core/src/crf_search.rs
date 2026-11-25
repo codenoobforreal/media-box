@@ -202,27 +202,29 @@ impl CrfSearcher {
     }
 
     /// 探测两端点：记录同规格分、补标定，判定是否可直接采用边界 CRF。
+    ///
+    /// 返回 `(结论, 已用轮次)`：轮次经返回值带回，避免 `&mut u8` 出参。
     fn probe_endpoints(
         &mut self,
         measurer: &mut impl SampleMeasurer,
         journal: &mut impl SearchJournal,
-        round: &mut u8,
+        mut round: u8,
         dual_spec: bool,
-    ) -> Result<EndpointDecision> {
+    ) -> Result<(EndpointDecision, u8)> {
         let target = self.target_score.as_f64();
 
         let Some(low_score) = measurer.measure(self.low, VmafMeasureMode::SameSpec)? else {
             journal.warning("下界 VMAF 无法测得，退回最优画质 CRF");
-            return Ok(EndpointDecision::UseLow);
+            return Ok((EndpointDecision::UseLow, round));
         };
 
-        *round += 1;
-        journal.round(*round, self.low, low_score);
+        round += 1;
+        journal.round(round, self.low, low_score);
         self.record(self.low, low_score);
 
         if low_score < target {
             journal.note("区间下界已无法达标，采用最优画质 CRF");
-            return Ok(EndpointDecision::UseLow);
+            return Ok((EndpointDecision::UseLow, round));
         }
 
         if dual_spec
@@ -232,17 +234,18 @@ impl CrfSearcher {
 
             if full_score < target {
                 journal.note("区间下界全规格仍未达标，采用最优画质 CRF");
-                return Ok(EndpointDecision::UseLow);
+                return Ok((EndpointDecision::UseLow, round));
             }
         }
 
         let Some(high_score) = measurer.measure(self.high, VmafMeasureMode::SameSpec)? else {
             journal.warning("上界 VMAF 无法测得，退回最优画质 CRF");
-            return Ok(EndpointDecision::UseLow);
+            // 上界不可测时同样落到下界，故复用 `UseLow`。
+            return Ok((EndpointDecision::UseLow, round));
         };
 
-        *round += 1;
-        journal.round(*round, self.high, high_score);
+        round += 1;
+        journal.round(round, self.high, high_score);
         self.record(self.high, high_score);
 
         // 只有单口径时同规格分才等于全规格分。
@@ -250,7 +253,7 @@ impl CrfSearcher {
         // 否则会返回未达标的最高压缩率 CRF。
         if !dual_spec && high_score >= target {
             journal.note("区间上界已满足目标 VMAF，采用最高压缩率 CRF");
-            return Ok(EndpointDecision::UseHigh);
+            return Ok((EndpointDecision::UseHigh, round));
         }
 
         if dual_spec
@@ -260,11 +263,11 @@ impl CrfSearcher {
 
             if full_score >= target {
                 journal.note("区间上界全规格已满足目标 VMAF，采用最高压缩率 CRF");
-                return Ok(EndpointDecision::UseHigh);
+                return Ok((EndpointDecision::UseHigh, round));
             }
         }
 
-        Ok(EndpointDecision::Continue)
+        Ok((EndpointDecision::Continue, round))
     }
 
     pub fn search(
@@ -273,10 +276,10 @@ impl CrfSearcher {
         journal: &mut impl SearchJournal,
     ) -> Result<ConstantRateFactor> {
         let target = self.target_score.as_f64();
-        let mut round = 0u8;
         let dual_spec = measurer.full_spec_is_distinct();
 
-        match self.probe_endpoints(measurer, journal, &mut round, dual_spec)? {
+        let (decision, mut round) = self.probe_endpoints(measurer, journal, 0, dual_spec)?;
+        match decision {
             EndpointDecision::UseLow => return Ok(self.low),
             EndpointDecision::UseHigh => return Ok(self.high),
             EndpointDecision::Continue => {}

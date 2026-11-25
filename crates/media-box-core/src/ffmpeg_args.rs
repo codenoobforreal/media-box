@@ -10,7 +10,7 @@ use std::time::Duration;
 
 /// ffmpeg 命令构建器。
 #[derive(Debug)]
-pub struct FfmpegCommand {
+pub(crate) struct FfmpegCommand {
     command: Command,
 }
 
@@ -22,44 +22,49 @@ impl Default for FfmpegCommand {
 
 impl FfmpegCommand {
     /// 新建命令，带 `-hide_banner`。
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut command = Command::new("ffmpeg");
         command.arg("-hide_banner");
         Self { command }
     }
 
     /// 追加 `-nostats`。
-    pub fn no_stats(mut self) -> Self {
+    pub(crate) fn no_stats(mut self) -> Self {
         self.command.arg("-nostats");
         self
     }
 
     /// 追加 `-v error`。
-    pub fn quiet(mut self) -> Self {
+    pub(crate) fn quiet(mut self) -> Self {
         self.command.args(["-v", "error"]);
         self
     }
 
     /// 追加 `-an -sn -dn`：禁用音频、字幕与数据流。
-    pub fn no_audio_subtitle_data(mut self) -> Self {
+    ///
+    /// 用于探测路径（VMAF / scdet / YDIF）：音频与字幕完全不参与分析。
+    pub(crate) fn no_audio_subtitle_data(mut self) -> Self {
         self.command.args(["-an", "-sn", "-dn"]);
         self
     }
 
     /// 追加 `-dn -sn`：禁用数据流与字幕（编码路径历史顺序）。
-    pub fn no_data_subtitle(mut self) -> Self {
+    ///
+    /// 仅编码路径使用：音频要 `-c:a copy` 保留，不能加 `-an`；
+    /// 保留原有的 `-dn -sn` 顺序，避免无意义的命令差异。
+    pub(crate) fn no_data_subtitle(mut self) -> Self {
         self.command.args(["-dn", "-sn"]);
         self
     }
 
     /// 追加 `-ss <秒>`。
-    pub fn seek(mut self, at: Duration) -> Self {
+    pub(crate) fn seek(mut self, at: Duration) -> Self {
         self.command.arg("-ss").arg(at.as_secs_f64().to_string());
         self
     }
 
     /// 追加 `-t <秒>`。
-    pub fn duration(mut self, duration: Duration) -> Self {
+    pub(crate) fn duration(mut self, duration: Duration) -> Self {
         self.command
             .arg("-t")
             .arg(duration.as_secs_f64().to_string());
@@ -67,7 +72,7 @@ impl FfmpegCommand {
     }
 
     /// 追加 `-i <路径>`。
-    pub fn input(mut self, path: &Path) -> Self {
+    pub(crate) fn input(mut self, path: &Path) -> Self {
         self.command.arg("-i").arg(path);
         self
     }
@@ -76,42 +81,42 @@ impl FfmpegCommand {
     ///
     /// 直接传 `&Path`（`AsRef<OsStr>`），不经 `to_string_lossy`——非 UTF-8
     /// 文件名必须原样交给 ffmpeg，否则会写到被 U+FFFD 替换后的另一个名字。
-    pub fn output(mut self, path: &Path) -> Self {
+    pub(crate) fn output(mut self, path: &Path) -> Self {
         self.command.arg("-y").arg(path);
         self
     }
 
     /// 追加 `-vf <滤镜>`。
-    pub fn video_filter(mut self, filter: &str) -> Self {
+    pub(crate) fn video_filter(mut self, filter: &str) -> Self {
         self.command.args(["-vf", filter]);
         self
     }
 
     /// 追加 `-lavfi <滤镜图>`。
-    pub fn lavfi(mut self, filter: &str) -> Self {
+    pub(crate) fn lavfi(mut self, filter: &str) -> Self {
         self.command.args(["-lavfi", filter]);
         self
     }
 
     /// 追加 `-f null -`：输出到空设备，用于分析而非写盘。
-    pub fn null_output(mut self) -> Self {
+    pub(crate) fn null_output(mut self) -> Self {
         self.command.args(["-f", "null", "-"]);
         self
     }
 
     /// 追加未知的原始参数（如导出侧数据、编码参数），保持调用顺序。
-    pub fn raw(mut self, args: &[&str]) -> Self {
+    pub(crate) fn raw(mut self, args: &[&str]) -> Self {
         self.command.args(args);
         self
     }
 
     /// 暴露可变命令引用，供已有 `apply(&mut Command)` 风格的编码参数追加。
-    pub fn as_command_mut(&mut self) -> &mut Command {
+    pub(crate) fn as_command_mut(&mut self) -> &mut Command {
         &mut self.command
     }
 
     /// 取出组装好的命令。
-    pub fn build(self) -> Command {
+    pub(crate) fn build(self) -> Command {
         self.command
     }
 }
