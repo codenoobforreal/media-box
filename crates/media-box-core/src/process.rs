@@ -84,13 +84,21 @@ pub fn is_error_line(line: &str) -> bool {
         || lower.contains("unable")
 }
 
+/// 生成可重放的命令展示串：含空白的参数加双引号，避免路径有空格时歧义。
+///
+/// 只加引号、不转义内部引号——目标是让用户能看懂并复制，不是构造 shell 脚本。
 pub fn display_command(command: &Command) -> String {
-    std::iter::once(command.get_program().to_string_lossy().into_owned())
-        .chain(
-            command
-                .get_args()
-                .map(|arg| arg.to_string_lossy().into_owned()),
-        )
+    fn quote(arg: &std::ffi::OsStr) -> String {
+        let text = arg.to_string_lossy();
+        if text.chars().any(char::is_whitespace) {
+            format!("\"{text}\"")
+        } else {
+            text.into_owned()
+        }
+    }
+
+    std::iter::once(quote(command.get_program()))
+        .chain(command.get_args().map(quote))
         .collect::<Vec<String>>()
         .join(" ")
 }
@@ -275,4 +283,19 @@ fn kill_process_tree(pid: u32) {
 
 fn join_quietly(handle: JoinHandle<()>) {
     let _ = handle.join();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_command_quotes_args_with_whitespace() {
+        let mut command = Command::new("ffmpeg");
+        command.args(["-i", "my video.mkv", "-f", "null", "-"]);
+        assert_eq!(
+            display_command(&command),
+            "ffmpeg -i \"my video.mkv\" -f null -"
+        );
+    }
 }
