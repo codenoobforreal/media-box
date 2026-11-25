@@ -295,13 +295,15 @@ ffmpeg 命令统一由 `ffmpeg_args::FfmpegCommand` 组装：方法调用顺序�
 ## image-convert 架构
 
 - `format.rs`：格式表（只含常用格式 png/jpg/jpeg/gif/webp/bmp），定义 `TargetFormat`、扩展名解析与 `--list-formats` 能力矩阵。
+
+**格式能力单一事实源**：`STANDARD_TABLE` 的每一项带 `Encoder` 策略（`Jpeg` / `Png` / `Generic`），`supports_quality`、`encode_to_buffer` 的编码分支、`image_extensions()` 扫描清单、`-f` 帮助文案**全部从该表派生**。新增或调整格式只改表一处；不要在别处再硬编码 `ImageFormat` 分支或扩展名清单。
 - `codecs.rs`：输入解码接入层，直接用 image 内置解码器，无扩展格式桥接。
 - `convert.rs`：批量转换引擎。收集 → 为整批预留输出路径 → 工作池并发执行 → 按源路径排序返回结果；支持 `--dry-run` / `--meta list`。
 - `metadata.rs`：通过 image 解码器读 EXIF / ICC 原始字节，支持 `keep` / `strip` / `list`。
 - `output_path.rs`：按 `-o` 镜像目录结构推导输出路径。
 - `report.rs`：逐文件结果与汇总打印。
 
-编码策略（`convert.rs` 的 `encode_to_buffer`）：JPEG 用可配置质量；PNG 在 `--optimize` 时启用最高无损压缩，`keep` 透传 EXIF/ICC；其余格式走 image 通用写出。写盘采用同目录临时文件 + 重命名，避免失败留下半截输出。
+编码策略（`convert.rs` 的 `encode_to_buffer`）：按格式表的 `Encoder` 字段分派——`Jpeg` 用可配置质量；`Png` 在 `--optimize` 时启用最高无损压缩、`keep` 透传 EXIF/ICC；`Generic` 走 image crate 通用写出。写盘采用同目录临时文件 + 重命名，避免失败留下半截输出。
 
 ## 测试约定
 
