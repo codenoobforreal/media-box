@@ -175,7 +175,7 @@ impl FfmpegProgressLineParser {
         }
     }
 
-    /// 最近一次读到的 `total_size（字节`）。
+    /// 最近一次读到的 `total_size`（字节）。
     pub fn total_size_bytes(&self) -> Option<u64> {
         self.total_size_bytes
     }

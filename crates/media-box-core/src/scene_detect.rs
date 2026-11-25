@@ -90,8 +90,9 @@ pub fn parse_scdet_log_line(log_line: &str) -> Option<SceneCutDetectionRecord> {
 
 fn number_after(log_line: &str, marker: &str) -> Option<f64> {
     let start = log_line.find(marker)? + marker.len();
+    // scdet 的 score 可以为负，所以数字串允许前导/内嵌的 '-'。
     let end = log_line[start..]
-        .find(|character: char| !character.is_ascii_digit() && character != '.')
+        .find(|character: char| !character.is_ascii_digit() && character != '.' && character != '-')
         .map_or(log_line.len(), |offset| start + offset);
 
     log_line[start..end].parse().ok()
@@ -136,5 +137,15 @@ mod tests {
         assert!((record.scene_change_score() - 12.3).abs() < 1e-9);
         assert!((record.scene_change_time_seconds() - 4.56).abs() < 1e-9);
         assert!(parse_scdet_log_line("frame= 10").is_none());
+    }
+
+    #[test]
+    fn parses_negative_scdet_scores() {
+        // scdet 的分数可以为负，不能被解析器当成非法输入丢弃。
+        let record =
+            parse_scdet_log_line("[scdet @ 000001] lavfi.scd.score: -1.25, lavfi.scd.time: 7.5")
+                .unwrap();
+        assert!((record.scene_change_score() + 1.25).abs() < 1e-9);
+        assert!((record.scene_change_time_seconds() - 7.5).abs() < 1e-9);
     }
 }

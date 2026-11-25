@@ -100,6 +100,12 @@ impl ConstantRateFactor {
         reason = "先夹到 1~70，换算后必为 4~280 的非负整数，u16 不会截断或丢符号"
     )]
     pub fn snapped_clamped(value: f64) -> Self {
+        // NaN / ±∞ 时 `clamp` 仍返回 NaN，直接 `as u16` 会饱和成 0——
+        // 落在文档区间之外。非有限值一律退回区间下界（CRF 1.0）。
+        if !value.is_finite() {
+            return Self(4);
+        }
+
         Self((value.clamp(1.0, 70.0) * Self::STEPS_PER_UNIT).round() as u16)
     }
 
@@ -301,6 +307,18 @@ mod tests {
         assert!(FrameRatePerSecond::new(0.9).is_err());
         assert!(FrameRatePerSecond::new(120.5).is_err());
         assert!(FrameRatePerSecond::new(120.0).is_ok());
+    }
+
+    #[test]
+    fn snapped_clamped_never_escapes_the_documented_range() {
+        assert_eq!(ConstantRateFactor::snapped_clamped(-5.0).as_f64(), 1.0);
+        assert_eq!(ConstantRateFactor::snapped_clamped(1_000.0).as_f64(), 70.0);
+        // NaN / ∞ 不能经 `as u16` 饱和成 0（越界值）。
+        assert_eq!(ConstantRateFactor::snapped_clamped(f64::NAN).as_f64(), 1.0);
+        assert_eq!(
+            ConstantRateFactor::snapped_clamped(f64::INFINITY).as_f64(),
+            1.0
+        );
     }
 
     #[test]
