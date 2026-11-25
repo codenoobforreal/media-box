@@ -224,10 +224,11 @@ impl<'a> SampleProbe<'a> {
             .args([
                 "-hide_banner",
                 "-nostats",
-                "-v",
-                "info",
                 "-export_side_data",
                 "+film_grain",
+                "-an",
+                "-sn",
+                "-dn",
                 "-i",
             ])
             .arg(distorted)

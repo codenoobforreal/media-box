@@ -6,9 +6,10 @@
 
 | 文件 | 内容 | 对应代码 |
 |---|---|---|
-| `ffmpeg progress pipe example.txt` | `ffmpeg -progress pipe:1` 的原始输出（`out_time_ms` / `total_size` / `progress` 等键） | `media-box-core/src/progress.rs`：`FfmpegProgressLineParser` |
+| `progress pipe example.txt` | `ffmpeg -progress pipe:1` 的原始输出（`out_time_ms` / `total_size` / `progress` 等键） | `media-box-core/src/progress.rs`：`FfmpegProgressLineParser` |
 | `ffprobe params explain.md` | ffprobe 流 / 格式各字段含义 | `media-box-core/src/probe.rs`：`ProbeRaw::absorb` 读取的字段 |
 | `metadata.jsonc` | `ffprobe ... -of json` 的完整输出样本 | 字段名与 `ffprobe params explain.md` 对照 |
+| `scdet sample.txt`| `ffmpeg -vf scdet` 的完整输出样本 |  |
 
 ## 注意
 

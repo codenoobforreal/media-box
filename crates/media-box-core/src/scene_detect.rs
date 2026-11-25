@@ -67,9 +67,9 @@ impl SceneCutDetector {
     fn command(&self) -> Command {
         let mut command = Command::new("ffmpeg");
         command
-            .args(["-hide_banner", "-nostats", "-v", "info", "-i"])
+            .args(["-hide_banner", "-nostats", "-an", "-sn", "-dn", "-i"])
             .arg(&self.input_video_path)
-            .args(["-an", "-vf", "scdet", "-f", "null", "-"]);
+            .args(["-vf", "scdet", "-f", "null", "-"]);
         command
     }
 }

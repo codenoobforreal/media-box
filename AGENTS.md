@@ -350,9 +350,10 @@ cargo fmt --check
 
 存放解析代码所依赖的外部格式样本与说明，供 Agent 核对字段/文本契约，不要随意改动：
 
-- `ffmpeg progress pipe example.txt`：`ffmpeg -progress pipe:1` 的原始输出，对应 `progress.rs` 的解析逻辑。
+- `progress pipe example.txt`：`ffmpeg -progress pipe:1` 的原始输出，对应 `progress.rs` 的解析逻辑。
 - `ffprobe params explain.md`：ffprobe 流/格式字段含义，对应 `probe.rs`。
 - `metadata.jsonc`：ffprobe JSON 输出样本。
+- `scdet example.txt` : `ffmpeg -vf scdet` 的输出样本。    
 
 ## 注释与文档约定
 
