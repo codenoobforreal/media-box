@@ -1,6 +1,5 @@
 //! 分辨率枚举、解析与像素数比较。
 
-use anyhow::{Result, bail};
 use std::fmt;
 use std::str::FromStr;
 
@@ -71,14 +70,14 @@ impl FromStr for Resolution {
         let width = parse_u16(width_str)?;
         let height = parse_u16(height_str)?;
 
-        Resolution::new(width, height).map_err(|_| ResolutionError::Zero)
+        Resolution::new(width, height)
     }
 }
 
 impl Resolution {
-    pub fn new(width: u16, height: u16) -> Result<Self> {
+    pub fn new(width: u16, height: u16) -> std::result::Result<Self, ResolutionError> {
         if width == 0 || height == 0 {
-            bail!("宽或高不能为 0");
+            return Err(ResolutionError::Zero);
         }
 
         Ok(match (width, height) {
