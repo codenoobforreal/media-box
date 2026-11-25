@@ -6,6 +6,7 @@ pub mod crf_probe;
 pub mod crf_search;
 pub mod encode_job;
 pub mod encoder;
+pub mod ffmpeg_args;
 pub mod film_grain;
 pub mod format;
 pub mod interrupter;
