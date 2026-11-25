@@ -24,6 +24,7 @@ Cargo workspace，三个成员：
 | `crf_search` | CRF 搜索状态机：标定、插值、收敛（纯逻辑，无外部依赖） |
 | `encode_job` | 正式编码的 ffmpeg 命令组装、进度解析与执行 |
 | `encoder` | 分辨率/帧率缩减设置与 AV1 编码参数，拼 `-vf` |
+| `ffmpeg_args` | ffmpeg 命令构建器：按调用顺序追加公共选项，纯组装不启动进程 |
 | `film_grain` | film-grain 强度计算：调用 YDIF 探测并汇总代表值 |
 | `format` | 时长与 UTC 时间戳格式化 |
 | `interrupter` | Ctrl+C 处理与取消状态 |
@@ -271,7 +272,9 @@ flowchart TD
 
 模型按实际输出分辨率选择：4K 用 `vmaf_v1.0.16_1d5h_2160`，其余用 `vmaf_v1.0.16_3d0h`。
 
-VMAF 测量意图是**颗粒合成后的最终观感**：`crf_probe.rs` 的 `build_vmaf_command` 两路都不加 `-export_side_data +film_grain`，让失真帧与源片按各自码流正常合成颗粒。该选项是 per-input 的，单侧设置会造成两路颗粒口径不一致。命令组装是纯函数，用 `get_args()` 静态断言，不启动 ffmpeg。
+VMAF 测量意图是**颗粒合成后的最终观感**：`crf_probe.rs` 的 `build_vmaf_command` 两路都不加 `-export_side_data +film_grain`，让失真帧与源片按各自码流正常合成颗粒。该选项是 per-input 的，单侧设置会造成两路颗粒口径不一致。
+
+ffmpeg 命令统一由 `ffmpeg_args::FfmpegCommand` 组装：方法调用顺序即参数顺序（`-ss` 在 `-i` 前后语义不同，构建器刻意不重排），覆盖 VMAF 测量、scdet、YDIF 探测与正式编码四路。ffprobe 是不同工具、仅一处调用，不纳入该构建器。所有命令组装都是纯函数，用 `get_args()` 完整序列断言锁定参数顺序，不启动 ffmpeg。`process::display_command` 对含空白的参数加引号，保证展示的命令可直接重放。
 
 ## 编码参数
 
