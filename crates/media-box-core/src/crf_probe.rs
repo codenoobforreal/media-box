@@ -236,24 +236,25 @@ impl<'a> SampleProbe<'a> {
         sample: &SceneSample,
         output: &Path,
     ) -> Result<()> {
-        let mut command = Command::new("ffmpeg");
-        command
-            .args(["-hide_banner", "-v", "error", "-an", "-sn", "-dn"])
-            .arg("-ss")
-            .arg(sample.start().as_secs_f64().to_string())
-            .arg("-i")
-            .arg(self.context.input)
-            .arg("-t")
-            .arg(sample.duration().as_secs_f64().to_string());
+        let mut builder = FfmpegCommand::new()
+            .quiet()
+            .no_audio_subtitle_data()
+            .seek(sample.start())
+            .input(self.context.input)
+            .duration(sample.duration());
 
-        Av1EncodeArgs::new(self.context.preset, crf, self.context.film_grain).apply(&mut command);
+        Av1EncodeArgs::new(self.context.preset, crf, self.context.film_grain)
+            .apply(builder.as_command_mut());
 
         if let Some(filter) = &self.sample_filter {
-            command.arg("-vf").arg(filter);
+            builder = builder.video_filter(filter);
         }
-        command.arg("-y").arg(output);
 
-        let output = process::run(command, self.context.canceller, |_, _| {})?;
+        let output = process::run(
+            builder.output(output).build(),
+            self.context.canceller,
+            |_, _| {},
+        )?;
 
         if output.success() {
             Ok(())
