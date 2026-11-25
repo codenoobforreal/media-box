@@ -1,13 +1,11 @@
 use crate::codecs;
-use crate::format::{IMAGE_EXTENSIONS, TargetFormat};
+use crate::format::{Encoder, TargetFormat, image_extensions};
 use crate::metadata::{Metadata, MetadataMode};
 use crate::output_path::output_path;
 use anyhow::{Context, Result};
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-use image::{
-    ColorType, DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder, ImageFormat,
-};
+use image::{ColorType, DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder};
 use media_box_core::media_scan::{ScannedFile, collect_files};
 use media_box_core::output_path::collision_free;
 use std::collections::HashSet;
@@ -82,7 +80,7 @@ impl ConvertOutcome {
 /// - 目录内容按图片扩展名筛选，depth 为递归层级，0 表示只看当前目录；
 /// - 符号链接跳过，重复路径去重。
 fn collect_images(inputs: &[impl AsRef<Path>], depth: u8) -> Result<Vec<ScannedFile>> {
-    collect_files(inputs, IMAGE_EXTENSIONS, Some(depth))
+    collect_files(inputs, &image_extensions(), Some(depth))
 }
 
 /// 运行批量转换，返回逐文件结果（按源路径排序，保证输出稳定）。
@@ -309,11 +307,11 @@ fn encode_to_buffer(
     metadata: &Metadata,
 ) -> Result<Vec<u8>> {
     let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
-    match format {
-        TargetFormat::Standard(ImageFormat::Jpeg) => {
+    match format.encoder() {
+        Encoder::Jpeg => {
             JpegEncoder::new_with_quality(&mut cursor, quality).encode_image(image)?;
         }
-        TargetFormat::Standard(ImageFormat::Png) => {
+        Encoder::Png => {
             let (width, height) = image.dimensions();
             let (color, data) = pixel_buffer(image);
             let compression = if optimize {
@@ -331,7 +329,8 @@ fn encode_to_buffer(
             }
             encoder.write_image(&data, width, height, color)?;
         }
-        TargetFormat::Standard(format) => {
+        Encoder::Generic => {
+            let TargetFormat::Standard(format) = format;
             image.write_to(&mut cursor, format)?;
         }
     }
@@ -421,7 +420,9 @@ mod tests {
             height,
             image::Rgb([10, 20, 30]),
         ));
-        image.save_with_format(path, ImageFormat::Png).unwrap();
+        image
+            .save_with_format(path, image::ImageFormat::Png)
+            .unwrap();
     }
 
     fn options(inputs: Vec<PathBuf>, output_dir: Option<PathBuf>) -> ConvertOptions {

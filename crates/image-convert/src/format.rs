@@ -12,32 +12,48 @@ pub enum FormatError {
     Unsupported(String),
 }
 
-/// 纳入支持范围的格式映射表，同时是输出格式清单。
+/// 输出编码策略：决定 `-q` 是否生效、用哪个编码器。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Encoder {
+    /// 有损 JPEG，`-q` 生效。
+    Jpeg,
+    /// 无损 PNG，`--optimize` 与元数据透传生效，`-q` 不生效。
+    Png,
+    /// image crate 的通用写出，`-q` 不生效。
+    Generic,
+}
+
+/// 纳入支持范围的格式映射表，同时是输出格式清单与能力来源。
 const STANDARD_TABLE: &[StandardSpec] = &[
     StandardSpec {
         format: ImageFormat::Png,
         extension: "png",
         aliases: &["png"],
+        encoder: Encoder::Png,
     },
     StandardSpec {
         format: ImageFormat::Jpeg,
         extension: "jpg",
         aliases: &["jpg", "jpeg"],
+        encoder: Encoder::Jpeg,
     },
     StandardSpec {
         format: ImageFormat::Gif,
         extension: "gif",
         aliases: &["gif"],
+        encoder: Encoder::Generic,
     },
     StandardSpec {
         format: ImageFormat::WebP,
         extension: "webp",
         aliases: &["webp"],
+        encoder: Encoder::Generic,
     },
     StandardSpec {
         format: ImageFormat::Bmp,
         extension: "bmp",
         aliases: &["bmp"],
+        encoder: Encoder::Generic,
     },
 ];
 
@@ -45,13 +61,24 @@ struct StandardSpec {
     format: ImageFormat,
     extension: &'static str,
     aliases: &'static [&'static str],
+    encoder: Encoder,
 }
 
 /// 扫描目录时用于筛选图片的扩展名（小写）。
 ///
-/// 包含内置格式的规范扩展名与常见别名；
+/// 由内置格式表派生（规范扩展名 + 别名），不再单独维护清单；
 /// 显式传入的文件不受此清单限制。
-pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+pub fn image_extensions() -> Vec<&'static str> {
+    let mut extensions: Vec<&'static str> = Vec::new();
+    for spec in STANDARD_TABLE {
+        for extension in std::iter::once(spec.extension).chain(spec.aliases.iter().copied()) {
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
+            }
+        }
+    }
+    extensions
+}
 
 /// 输出目标格式。
 ///
@@ -62,15 +89,17 @@ pub enum TargetFormat {
 }
 
 impl TargetFormat {
+    /// 在格式表中查该格式的规格；表中没有时返回 `None`。
+    fn spec(self) -> Option<&'static StandardSpec> {
+        STANDARD_TABLE
+            .iter()
+            .find(|spec| matches!(self, Self::Standard(format) if spec.format == format))
+    }
+
     /// 规范扩展名（不含点）。
     #[must_use]
     pub fn extension(self) -> &'static str {
-        match self {
-            Self::Standard(format) => STANDARD_TABLE
-                .iter()
-                .find(|spec| spec.format == format)
-                .map_or("", |spec| spec.extension),
-        }
+        self.spec().map_or("", |spec| spec.extension)
     }
 
     /// 目标格式在当前编译特性下是否可写。
@@ -81,10 +110,15 @@ impl TargetFormat {
         }
     }
 
-    /// -q 质量参数是否对该输出格式生效。
+    /// `-q` 质量参数是否对该输出格式生效；由格式表的编码策略决定。
     #[must_use]
     pub fn supports_quality(self) -> bool {
-        matches!(self, Self::Standard(ImageFormat::Jpeg))
+        matches!(self.encoder(), Encoder::Jpeg)
+    }
+
+    /// 该格式的编码策略；表外格式退回通用写出。
+    pub(crate) fn encoder(self) -> Encoder {
+        self.spec().map_or(Encoder::Generic, |spec| spec.encoder)
     }
 }
 
@@ -196,30 +230,44 @@ mod tests {
     }
 
     #[test]
-    fn quality_support_matches_encoder_capabilities() {
-        assert!(TargetFormat::Standard(ImageFormat::Jpeg).supports_quality());
-        assert!(!TargetFormat::Standard(ImageFormat::Png).supports_quality());
-        assert!(!TargetFormat::Standard(ImageFormat::WebP).supports_quality());
-        assert!(!TargetFormat::Standard(ImageFormat::Gif).supports_quality());
-        assert!(!TargetFormat::Standard(ImageFormat::Bmp).supports_quality());
-    }
-
-    #[test]
-    fn scan_extensions_cover_canonical_names() {
-        // 每个规范扩展名都应出现在扫描集合中（别名也在）。
+    fn quality_support_is_derived_from_the_encoder() {
+        // 能力矩阵与编码策略必须同源：只有 Jpeg 策略才声称 -q 生效。
         for spec in STANDARD_TABLE.iter() {
-            assert!(
-                IMAGE_EXTENSIONS.contains(&spec.extension),
-                "内置扩展 {} 未出现在扫描集合中",
+            let target = TargetFormat::Standard(spec.format);
+            assert_eq!(
+                target.supports_quality(),
+                spec.encoder == Encoder::Jpeg,
+                "{} 的 supports_quality 与 encoder 不一致",
                 spec.extension
             );
         }
-        // 反向：扫描集合中每个扩展名都能解析为某个格式。
-        for extension in IMAGE_EXTENSIONS {
+    }
+
+    #[test]
+    fn scan_extensions_are_derived_from_the_table() {
+        let extensions = image_extensions();
+
+        // 每个规范扩展名与别名都在扫描集合中。
+        for spec in STANDARD_TABLE.iter() {
+            assert!(
+                extensions.contains(&spec.extension),
+                "缺少 {}",
+                spec.extension
+            );
+            for alias in spec.aliases {
+                assert!(extensions.contains(alias), "缺少别名 {alias}");
+            }
+        }
+        // 反向：扫描集合中每个扩展名都能解析为某个格式，且没有重复项。
+        for extension in &extensions {
             assert!(
                 extension.parse::<TargetFormat>().is_ok(),
                 "扫描扩展 {extension} 无法解析为目标格式"
             );
         }
+        let mut unique = extensions.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), extensions.len(), "扫描集合含重复扩展名");
     }
 }
