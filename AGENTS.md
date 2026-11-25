@@ -276,7 +276,7 @@ flowchart TD
 
 VMAF 测量意图是**颗粒合成后的最终观感**：`crf_probe.rs` 的 `build_vmaf_command` 两路都不加 `-export_side_data +film_grain`，让失真帧与源片按各自码流正常合成颗粒。该选项是 per-input 的，单侧设置会造成两路颗粒口径不一致。
 
-ffmpeg 命令统一由 `ffmpeg_args::FfmpegCommand` 组装：方法调用顺序即参数顺序（`-ss` 在 `-i` 前后语义不同，构建器刻意不重排），覆盖 VMAF 测量、scdet、YDIF 探测与正式编码四路。ffprobe 是不同工具、仅一处调用，不纳入该构建器。所有命令组装都是纯函数，用 `get_args()` 完整序列断言锁定参数顺序，不启动 ffmpeg。`process::display_command` 对含空白的参数加引号，保证展示的命令可直接重放。
+ffmpeg 命令统一由 `ffmpeg_args::FfmpegCommand` 组装：方法调用顺序即参数顺序（`-ss` 在 `-i` 前后语义不同，构建器刻意不重排），覆盖 VMAF 测量、样本编码、scdet、YDIF 探测与正式编码五路。ffprobe 是不同工具、仅一处调用，不纳入该构建器。所有命令组装都是纯函数，用 `get_args()` 完整序列断言锁定参数顺序，不启动 ffmpeg。`process::display_command` 对含空白的参数加引号，保证展示的命令可直接重放。
 
 ## 编码参数
 
@@ -296,14 +296,14 @@ ffmpeg 命令统一由 `ffmpeg_args::FfmpegCommand` 组装：方法调用顺序�
 
 - `format.rs`：格式表（只含常用格式 png/jpg/jpeg/gif/webp/bmp），定义 `TargetFormat`、扩展名解析与 `--list-formats` 能力矩阵。
 
-**格式能力单一事实源**：`STANDARD_TABLE` 的每一项带 `Encoder` 策略（`Jpeg` / `Png` / `Generic`），`supports_quality`、`encode_to_buffer` 的编码分支、`image_extensions()` 扫描清单、`-f` 帮助文案**全部从该表派生**。新增或调整格式只改表一处；不要在别处再硬编码 `ImageFormat` 分支或扩展名清单。
+**格式能力单一事实源**：`STANDARD_TABLE` 的每一项带 `Encoder` 策略（`Jpeg` / `Png` / `WebP` / `Generic`），`supports_quality`、`encode_to_buffer` 的编码分支、`image_extensions()` 扫描清单、`-f` 帮助文案**全部从该表派生**。新增或调整格式只改表一处；不要在别处再硬编码 `ImageFormat` 分支或扩展名清单。
 - `codecs.rs`：输入解码接入层，直接用 image 内置解码器，无扩展格式桥接。
 - `convert.rs`：批量转换引擎。收集 → 为整批预留输出路径 → 工作池并发执行 → 按源路径排序返回结果；支持 `--dry-run` / `--meta list`。
 - `metadata.rs`：通过 image 解码器读 EXIF / ICC 原始字节，支持 `keep` / `strip` / `list`。
 - `output_path.rs`：按 `-o` 镜像目录结构推导输出路径。
 - `report.rs`：逐文件结果与汇总打印。
 
-编码策略（`convert.rs` 的 `encode_to_buffer`）：按格式表的 `Encoder` 字段分派——`Jpeg` 用可配置质量；`Png` 在 `--optimize` 时启用最高无损压缩、`keep` 透传 EXIF/ICC；`Generic` 走 image crate 通用写出。写盘采用同目录临时文件 + 重命名，避免失败留下半截输出。
+编码策略（`convert.rs` 的 `encode_to_buffer`）：按格式表的 `Encoder` 字段分派——`Jpeg` 用可配置质量；`Png` 在 `--optimize` 时启用最高无损压缩、`keep` 透传 EXIF/ICC；`WebP` 走无损编码并透传元数据（输入先降到 8 位）；`Generic` 走 image crate 通用写出，元数据不生效。写盘采用同目录临时文件 + 重命名，避免失败留下半截输出。
 
 ## 测试约定
 

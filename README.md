@@ -129,7 +129,7 @@ image-convert -i <输入路径...> -f <目标格式> [选项]
 | `--dry-run` | 只列出将转换的文件，不写盘 | 关 |
 | `--optimize` | PNG 输出启用最高无损压缩 | 关 |
 | `--meta <keep/strip/list>` | 源元数据保留、剔除或只列出摘要 | keep |
-| `--list-formats` | 打印输入/输出格式能力矩阵后退出 | — |
+| `--list-formats` | 打印输出格式清单后退出 | — |
 
 `--list-formats` 与 `--meta list` 只读取信息，不需要 `-f`；其余场景必须显式给出 `-f`。
 
@@ -172,7 +172,7 @@ image-convert -i D:\images -f png --meta list
 
 - 个人工具定位，只支持常用格式；用 `--list-formats` 查看完整清单。
 - WebP 使用纯 Rust 无损编码，暂不支持有损编码，`-q` 对其无效。
-- 元数据保留依赖编码器支持，`--meta keep` 是尽力而为。
+- 元数据保留依赖编码器支持：png / jpg / webp 保留 EXIF/ICC，gif / bmp 不支持；`--meta keep` 读失败只在 stderr 告警。
 
 ## 开发与测试
 

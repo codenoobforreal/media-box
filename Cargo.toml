@@ -5,6 +5,7 @@ members = ["crates/media-box", "crates/media-box-core", "crates/image-convert"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 license = "MIT"
 
 [workspace.dependencies]

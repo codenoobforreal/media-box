@@ -2,6 +2,7 @@
 name = "media-box"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "基于 VMAF 目标分数的 SVT-AV1 批量压缩工具"
 

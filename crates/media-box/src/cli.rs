@@ -106,7 +106,7 @@ fn parse_video_compress(matches: &ArgMatches) -> CompressOptions {
     // clap 的 required(true) 已保证至少一个输入。
     let inputs = matches
         .get_many::<PathBuf>("input")
-        .map_or_default(|values| values.cloned().collect());
+        .map_or_else(Vec::new, |values| values.cloned().collect());
 
     CompressOptions::new(
         inputs,
