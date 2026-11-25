@@ -10,8 +10,6 @@ use std::path::PathBuf;
 /// 参数组合校验错误：可在调用方按类型分支，展示文本只在 report 层生成。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum ValidationError {
-    #[error("缺少输入：用 -i 指定源图片文件或目录")]
-    MissingInput,
     #[error("缺少目标格式：用 -f 指定输出格式")]
     MissingFormat,
 }
@@ -176,7 +174,7 @@ impl CliArgs {
         Self {
             inputs: matches
                 .get_many::<PathBuf>("input")
-                .map_or_default(|values| values.cloned().collect()),
+                .map_or_else(Vec::new, |values| values.cloned().collect()),
             output_dir: matches.get_one::<PathBuf>("output").cloned(),
             // --list-formats 模式下 -f 可省略，此时该字段不参与任何转换。
             format: matches
@@ -198,19 +196,20 @@ impl CliArgs {
                 .get_one::<MetadataMode>("metadata")
                 .expect("--meta 有默认值"),
             list_formats: matches.get_flag("list_formats"),
-            format_explicit: matches.contains_id("format"),
+            // 只有命令行显式给出 -f 才算「指定了格式」；用 value_source 判断，
+            // 不要依赖 contains_id（给 -f 加默认值后语义会静默变化）。
+            format_explicit: matches.value_source("format")
+                == Some(clap::parser::ValueSource::CommandLine),
         }
     }
 
     /// 校验参数组合，返回错误信息。
     ///
     /// --list-formats 与 --meta list 只读取信息，不需要 -f；其余转换必须显式给出 -f。
+    /// `-i` 的必填由 clap 保证（`--list-formats` 除外）。
     pub(crate) fn validate(&self) -> std::result::Result<(), ValidationError> {
         if self.list_formats || self.metadata == MetadataMode::List {
             return Ok(());
-        }
-        if self.inputs.is_empty() {
-            return Err(ValidationError::MissingInput);
         }
         if !self.format_explicit {
             return Err(ValidationError::MissingFormat);

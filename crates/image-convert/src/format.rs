@@ -19,7 +19,9 @@ pub(crate) enum Encoder {
     Jpeg,
     /// 无损 PNG，`--optimize` 与元数据透传生效，`-q` 不生效。
     Png,
-    /// image crate 的通用写出，`-q` 不生效。
+    /// 无损 WebP，元数据透传生效，`-q` 不生效。
+    WebP,
+    /// image crate 的通用写出，`-q` 与元数据均不生效。
     Generic,
 }
 
@@ -47,7 +49,7 @@ const STANDARD_TABLE: &[StandardSpec] = &[
         format: ImageFormat::WebP,
         extension: "webp",
         aliases: &["webp"],
-        encoder: Encoder::Generic,
+        encoder: Encoder::WebP,
     },
     StandardSpec {
         format: ImageFormat::Bmp,

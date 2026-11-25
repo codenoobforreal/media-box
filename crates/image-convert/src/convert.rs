@@ -5,6 +5,7 @@ use crate::output_path::output_path;
 use anyhow::{Context, Result};
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+use image::codecs::webp::WebPEncoder;
 use image::{ColorType, DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder};
 use media_box_core::media_scan::{ScannedFile, collect_files};
 use media_box_core::output_path::collision_free;
@@ -188,7 +189,7 @@ fn run_tasks(tasks: &[Task], options: &ConvertOptions) -> Vec<ConvertOutcome> {
     let (result_tx, result_rx) = mpsc::channel::<ConvertOutcome>();
     let task_rx = Arc::new(Mutex::new(task_rx));
 
-    let workers = options.jobs.max(1);
+    let workers = options.jobs.max(1).min(tasks.len().max(1));
     thread::scope(|scope| {
         for _ in 0..workers {
             let task_rx = Arc::clone(&task_rx);
@@ -276,9 +277,16 @@ fn resolve_target(
 fn convert_one(source: &Path, target: &Path, options: &ConvertOptions) -> Result<u64> {
     let image = codecs::decode_input(source)?;
 
-    // keep 模式尽力读取源元数据；读不到（格式不支持）时按无元数据处理。
+    // keep 模式尽力读取源元数据：读不到按无元数据处理，但不能静默——
+    // 用户分不清「源本来没有元数据」和「读取失败被丢掉」。
     let metadata = if options.metadata == MetadataMode::Keep {
-        crate::metadata::read_metadata(source).unwrap_or_default()
+        match crate::metadata::read_metadata(source) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                warn_metadata_read_failure(source, &error);
+                Metadata::default()
+            }
+        }
     } else {
         Metadata::default()
     };
@@ -295,10 +303,21 @@ fn convert_one(source: &Path, target: &Path, options: &ConvertOptions) -> Result
     write_atomic(target, &buffer).with_context(|| format!("写入输出 {}", target.display()))
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "CLI 工具：元数据读取失败只告警，不能中断整批转换"
+)]
+fn warn_metadata_read_failure(source: &Path, error: &anyhow::Error) {
+    eprintln!(
+        "警告：{} 的元数据读取失败，按无元数据处理：{error:#}",
+        source.display()
+    );
+}
+
 /// 把动态图像编码为内存字节。
 ///
 /// JPEG 使用可配置质量的编码器；PNG 在 optimize 时启用最高压缩，
-/// 并在 keep 模式透传 EXIF/ICC；其余格式走通用写出。
+/// 并在 keep 模式透传 EXIF/ICC；WebP 用无损编码并透传元数据；其余格式走通用写出。
 #[expect(
     clippy::fn_params_excessive_bools,
     reason = "编码选项一一对应 CLI 开关，拆成枚举反而要在调用点重新组装"
@@ -313,7 +332,9 @@ fn encode_to_buffer(
     let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
     match format.encoder() {
         Encoder::Jpeg => {
-            JpegEncoder::new_with_quality(&mut cursor, quality).encode_image(image)?;
+            let mut encoder = JpegEncoder::new_with_quality(&mut cursor, quality);
+            apply_metadata(&mut encoder, metadata);
+            encoder.encode_image(image)?;
         }
         Encoder::Png => {
             let (width, height) = image.dimensions();
@@ -325,12 +346,14 @@ fn encode_to_buffer(
             };
             let mut encoder =
                 PngEncoder::new_with_quality(&mut cursor, compression, FilterType::Adaptive);
-            if let Some(exif) = &metadata.exif {
-                encoder.set_exif_metadata(exif.clone())?;
-            }
-            if let Some(icc) = &metadata.icc {
-                encoder.set_icc_profile(icc.clone())?;
-            }
+            apply_metadata(&mut encoder, metadata);
+            encoder.write_image(&data, width, height, color)?;
+        }
+        Encoder::WebP => {
+            let (width, height) = image.dimensions();
+            let (color, data) = webp_pixel_buffer(image);
+            let mut encoder = WebPEncoder::new_lossless(&mut cursor);
+            apply_metadata(&mut encoder, metadata);
             encoder.write_image(&data, width, height, color)?;
         }
         Encoder::Generic => {
@@ -339,6 +362,16 @@ fn encode_to_buffer(
         }
     }
     Ok(cursor.into_inner())
+}
+
+/// 尽力把 EXIF / ICC 写进编码器；编码器不支持时静默跳过，不阻断转换。
+fn apply_metadata(encoder: &mut impl ImageEncoder, metadata: &Metadata) {
+    if let Some(exif) = &metadata.exif {
+        let _ = encoder.set_exif_metadata(exif.clone());
+    }
+    if let Some(icc) = &metadata.icc {
+        let _ = encoder.set_icc_profile(icc.clone());
+    }
 }
 
 /// 取图像用于编码的（颜色类型，原始像素字节），保留原始位深与通道。
@@ -375,6 +408,22 @@ fn pixel_buffer(image: &DynamicImage) -> (ExtendedColorType, Vec<u8>) {
 /// 把 16bit 像素（本机字节序的 u16 切片）展开为字节切片。
 fn u16_native_bytes(values: &[u16]) -> Vec<u8> {
     values.iter().copied().flat_map(u16::to_ne_bytes).collect()
+}
+
+/// 取 WebP 编码用的 8 位像素字节：WebP 只有 8 位色深，16 位输入在此降位。
+fn webp_pixel_buffer(image: &DynamicImage) -> (ExtendedColorType, Vec<u8>) {
+    match image.color() {
+        ColorType::L8 | ColorType::L16 => (ExtendedColorType::L8, image.to_luma8().into_raw()),
+        ColorType::La8 | ColorType::La16 => {
+            (ExtendedColorType::La8, image.to_luma_alpha8().into_raw())
+        }
+        ColorType::Rgb8 | ColorType::Rgb16 => (ExtendedColorType::Rgb8, image.to_rgb8().into_raw()),
+        ColorType::Rgba8 | ColorType::Rgba16 => {
+            (ExtendedColorType::Rgba8, image.to_rgba8().into_raw())
+        }
+        other if other.has_alpha() => (ExtendedColorType::Rgba8, image.to_rgba8().into_raw()),
+        _ => (ExtendedColorType::Rgb8, image.to_rgb8().into_raw()),
+    }
 }
 
 /// 先写同目录临时文件再重命名，避免失败留下半截输出。
@@ -656,6 +705,36 @@ mod tests {
         assert_eq!(metadata.exif.as_deref(), Some(b"EXIF-TEST".as_slice()));
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn keep_metadata_round_trips_exif_for_jpeg_and_webp() {
+        // 「能保留就保留」：jpg / webp 的编码器都支持 EXIF，不能被静默丢弃。
+        for format in ["jpg", "webp"] {
+            let root = temp_dir(&format!("meta-keep-exif-{format}"));
+            let source = root.join("photo.png");
+            write_png_with_exif(&source);
+
+            let mut opts = options(vec![source], Some(root.join("out")));
+            opts.format = format.parse().unwrap();
+            opts.metadata = MetadataMode::Keep;
+            let outcomes = run(&opts).unwrap();
+            assert!(
+                matches!(outcomes[0], ConvertOutcome::Success { .. }),
+                "{format} 转换应成功：{:?}",
+                outcomes[0]
+            );
+
+            let metadata = crate::metadata::read_metadata(outcomes[0].target()).unwrap();
+            let exif = metadata.exif.expect("输出应保留 EXIF");
+            assert!(
+                exif.windows(b"EXIF-TEST".len())
+                    .any(|window| window == b"EXIF-TEST"),
+                "{format} 的 EXIF 内容丢失：{exif:?}"
+            );
+
+            let _ = fs::remove_dir_all(&root);
+        }
     }
 
     #[test]
