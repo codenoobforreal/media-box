@@ -72,6 +72,15 @@ impl FfmpegCommand {
         self
     }
 
+    /// 追加 `-y <路径>`：覆盖写输出。
+    ///
+    /// 直接传 `&Path`（`AsRef<OsStr>`），不经 `to_string_lossy`——非 UTF-8
+    /// 文件名必须原样交给 ffmpeg，否则会写到被 U+FFFD 替换后的另一个名字。
+    pub fn output(mut self, path: &Path) -> Self {
+        self.command.arg("-y").arg(path);
+        self
+    }
+
     /// 追加 `-vf <滤镜>`。
     pub fn video_filter(mut self, filter: &str) -> Self {
         self.command.args(["-vf", filter]);
@@ -111,12 +120,49 @@ impl FfmpegCommand {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+    use std::path::PathBuf;
 
     fn args(command: &Command) -> Vec<String> {
         command
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect()
+    }
+
+    #[test]
+    fn output_keeps_the_path_as_os_str() {
+        let path = PathBuf::from("有 空格 的目录/out.mp4");
+        let command = FfmpegCommand::new().output(&path).build();
+
+        let all: Vec<&OsStr> = command.get_args().collect();
+        assert_eq!(
+            all,
+            [
+                OsStr::new("-hide_banner"),
+                OsStr::new("-y"),
+                path.as_os_str(),
+            ]
+        );
+    }
+
+    /// 非 UTF-8 路径必须原样传给 ffmpeg；用 `to_string_lossy` 会写错文件名。
+    #[cfg(windows)]
+    #[test]
+    fn output_preserves_non_utf8_path_bytes() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        let mut wide: Vec<u16> = OsStr::new("out").encode_wide().collect();
+        wide.push(0xD800); // 未配对代理项：合法 OsStr，但不是合法 UTF-8
+        wide.extend(OsStr::new(".mp4").encode_wide());
+        let path = PathBuf::from(OsString::from_wide(&wide));
+
+        // 前提校验：该路径确实无法无损转成 UTF-8。
+        assert!(path.to_string_lossy().contains('\u{FFFD}'));
+
+        let command = FfmpegCommand::new().output(&path).build();
+        let last = command.get_args().last();
+        assert_eq!(last, Some(path.as_os_str()));
     }
 
     #[test]

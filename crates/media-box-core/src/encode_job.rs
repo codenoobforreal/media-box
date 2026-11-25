@@ -37,7 +37,7 @@ pub fn build_command(
         None => builder,
     };
 
-    builder.raw(&["-y", &output.to_string_lossy()]).build()
+    builder.output(output).build()
 }
 
 /// 执行编码并解析进度；失败或取消时删除半成品输出，成功返回输出字节数。
@@ -126,6 +126,11 @@ mod tests {
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
+        // 输出路径必须以 OsStr 原样落在最后一个参数上，不能退化成字符串。
+        assert_eq!(
+            command.get_args().last(),
+            Some(std::ffi::OsStr::new("out.mp4"))
+        );
         assert_eq!(
             got,
             [
