@@ -117,12 +117,20 @@ impl<'a> SampleProbe<'a> {
             .unwrap_or("mp4")
             .to_owned();
 
+        let sample_filter = settings.video_filter();
+        let spec = vmaf::VideoSpec {
+            source_resolution: settings.input_resolution(),
+            output_resolution: settings.output_resolution(),
+            source_fps: settings.input_fps(),
+            filter: sample_filter.as_deref(),
+        };
+
         Self {
             filters: [
-                vmaf::filter_graph(VmafMeasureMode::SameSpec, settings),
-                vmaf::filter_graph(VmafMeasureMode::FullSpec, settings),
+                vmaf::filter_graph(VmafMeasureMode::SameSpec, spec),
+                vmaf::filter_graph(VmafMeasureMode::FullSpec, spec),
             ],
-            sample_filter: settings.video_filter(),
+            sample_filter,
             temp_stem,
             temp_extension,
             context,

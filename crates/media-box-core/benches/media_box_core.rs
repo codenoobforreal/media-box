@@ -23,7 +23,7 @@ use media_box_core::scene_detect::{SceneCutDetectionRecord, parse_scdet_log_line
 use media_box_core::scene_sampler::SceneSampler;
 use media_box_core::stats::f64_median;
 use media_box_core::value::{ConstantRateFactor, FrameRatePerSecond, VmafScore};
-use media_box_core::vmaf::{VmafMeasureMode, filter_graph, parse_score};
+use media_box_core::vmaf::{VideoSpec, VmafMeasureMode, filter_graph, parse_score};
 use media_box_core::ydif_probe::parse_ydif_value_from_line;
 use media_box_core::ydif_stats::YdifValueSeries;
 use media_box_core::ydif_stats::film_grain_strength;
@@ -258,11 +258,19 @@ fn bench_filter(c: &mut Criterion) {
     });
     group.bench_function("is-reduced", |b| b.iter(|| black_box(reduced.is_reduced())));
 
+    let reduced_filter = reduced.video_filter();
+    let spec = VideoSpec {
+        source_resolution: reduced.input_resolution(),
+        output_resolution: reduced.output_resolution(),
+        source_fps: reduced.input_fps(),
+        filter: reduced_filter.as_deref(),
+    };
+
     group.bench_function("vmaf-graph/same-spec", |b| {
-        b.iter(|| black_box(filter_graph(VmafMeasureMode::SameSpec, reduced)))
+        b.iter(|| black_box(filter_graph(VmafMeasureMode::SameSpec, spec)))
     });
     group.bench_function("vmaf-graph/full-spec", |b| {
-        b.iter(|| black_box(filter_graph(VmafMeasureMode::FullSpec, reduced)))
+        b.iter(|| black_box(filter_graph(VmafMeasureMode::FullSpec, spec)))
     });
 
     group.finish();

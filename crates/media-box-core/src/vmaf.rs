@@ -1,8 +1,21 @@
 //! libvmaf 滤镜图构造：同规格 / 全规格两种测量口径。
 
-use crate::encoder::BitrateReduceSettings;
 use crate::resolution::Resolution;
+use crate::value::FrameRatePerSecond;
 use std::sync::LazyLock;
+
+/// 构造 VMAF 滤镜图所需的最小视频规格。
+///
+/// 刻意不依赖 `encoder::BitrateReduceSettings`：滤镜图只关心源/输出分辨率、
+/// 源帧率与缩放滤镜串，调用方从自己的设置里取出这四项即可。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VideoSpec<'a> {
+    pub source_resolution: Resolution,
+    pub output_resolution: Resolution,
+    pub source_fps: FrameRatePerSecond,
+    /// 与样本编码同源的滤镜链（`BitrateReduceSettings::video_filter`）。
+    pub filter: Option<&'a str>,
+}
 
 static VMAF_THREADS: LazyLock<usize> = LazyLock::new(|| {
     std::thread::available_parallelism().map_or(1, |parallelism| parallelism.get())
@@ -34,16 +47,16 @@ fn model(resolution: Resolution) -> &'static str {
     }
 }
 
-/// 构造 libvmaf 滤镜图；只取决于设置，调用方按模式各构一次即可。
-pub fn filter_graph(mode: VmafMeasureMode, settings: BitrateReduceSettings) -> String {
+/// 构造 libvmaf 滤镜图；只取决于视频规格，调用方按模式各构一次即可。
+pub fn filter_graph(mode: VmafMeasureMode, spec: VideoSpec<'_>) -> String {
     let threads = *VMAF_THREADS;
 
     match mode {
         VmafMeasureMode::SameSpec => {
-            // 失真帧是样本编码产物，已带 settings.video_filter()；参考帧必须走同一条
-            // 滤镜链才能两路同规格。不能拿目标边界分辨率硬拼 scale：
+            // 失真帧是样本编码产物，已带 spec.filter；参考帧必须走同一条滤镜链
+            // 才能两路同规格。不能拿目标边界分辨率硬拼 scale：
             // 等比缩小时实际输出小于目标，不放大时实际输出等于源。
-            let reference_filter = match settings.video_filter() {
+            let reference_filter = match spec.filter {
                 Some(filter) => format!("{filter},"),
                 None => String::new(),
             };
@@ -51,18 +64,18 @@ pub fn filter_graph(mode: VmafMeasureMode, settings: BitrateReduceSettings) -> S
                 "[0:v]setpts=PTS-STARTPTS[dist];\
                  [1:v]{reference_filter}setpts=PTS-STARTPTS[ref];\
                  [dist][ref]libvmaf=model=version={model}:n_threads={threads}",
-                model = model(settings.output_resolution()),
+                model = model(spec.output_resolution),
             )
         }
         VmafMeasureMode::FullSpec => {
-            let resolution = settings.input_resolution();
+            let resolution = spec.source_resolution;
             format!(
                 "[0:v]scale=w={w}:h={h}:flags=lanczos,fps={fps},setpts=PTS-STARTPTS[dist];\
                  [1:v]setpts=PTS-STARTPTS[ref];\
                  [dist][ref]libvmaf=model=version={model}:n_threads={threads}",
                 w = resolution.width(),
                 h = resolution.height(),
-                fps = settings.input_fps().as_f64(),
+                fps = spec.source_fps.as_f64(),
                 model = model(resolution),
             )
         }
@@ -84,35 +97,33 @@ pub fn parse_score(stderr_lines: &[String]) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encoder::{BitrateReduceSettings, FrameRateReduce, ResolutionDownScaling};
-    use crate::value::FrameRatePerSecond;
+    const DOWNSCALED: &str = "fps=30,scale=1920:1080:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos";
 
-    fn settings() -> BitrateReduceSettings {
-        BitrateReduceSettings::new(
-            ResolutionDownScaling::new(Some(Resolution::Fhd), Resolution::Uhd),
-            FrameRateReduce::new(
-                Some(FrameRatePerSecond::new(30.0).unwrap()),
-                FrameRatePerSecond::new(60.0).unwrap(),
-            ),
-        )
+    fn reduced_spec() -> VideoSpec<'static> {
+        // 4K60 → 1080p30：源与输出不同，滤镜链非空。
+        VideoSpec {
+            source_resolution: Resolution::Uhd,
+            output_resolution: Resolution::Fhd,
+            source_fps: FrameRatePerSecond::new(60.0).unwrap(),
+            filter: Some(DOWNSCALED),
+        }
     }
 
     #[test]
     fn the_two_modes_measure_different_resolutions() {
         // 同规格：参考帧走与样本编码相同的滤镜链（先 fps 后等比 scale），
         // 不再拿目标边界分辨率硬拼 scale；输出规格用 3d0h 模型。
-        let settings = settings();
-        let same_spec = filter_graph(VmafMeasureMode::SameSpec, settings);
-        let expected = settings.video_filter().expect("该设置应生成滤镜");
+        let spec = reduced_spec();
+        let same_spec = filter_graph(VmafMeasureMode::SameSpec, spec);
         assert!(
-            same_spec.contains(&format!("[1:v]{expected},setpts=PTS-STARTPTS[ref]")),
+            same_spec.contains(&format!("[1:v]{DOWNSCALED},setpts=PTS-STARTPTS[ref]")),
             "{same_spec}"
         );
         assert!(!same_spec.contains("scale=w="), "{same_spec}");
         assert!(same_spec.contains("vmaf_v1.0.16_3d0h"), "{same_spec}");
 
         // 全规格：失真帧上采样回源规格，参考帧原样。
-        let full_spec = filter_graph(VmafMeasureMode::FullSpec, settings);
+        let full_spec = filter_graph(VmafMeasureMode::FullSpec, spec);
         assert!(
             full_spec.contains("[0:v]scale=w=3840:h=2160"),
             "{full_spec}"
@@ -125,12 +136,14 @@ mod tests {
 
     #[test]
     fn same_spec_keeps_the_reference_untouched_when_nothing_is_reduced() {
-        // 源小于用户目标时不放大：两路都不加滤镜，不能出现 1920x1080 硬编码。
-        let settings = BitrateReduceSettings::new(
-            ResolutionDownScaling::new(Some(Resolution::Uhd), Resolution::Hd),
-            FrameRateReduce::new(None, FrameRatePerSecond::new(24.0).unwrap()),
-        );
-        let graph = filter_graph(VmafMeasureMode::SameSpec, settings);
+        // 源小于用户目标时不放大：滤镜链为空，两路都不加 scale/fps。
+        let spec = VideoSpec {
+            source_resolution: Resolution::Hd,
+            output_resolution: Resolution::Hd,
+            source_fps: FrameRatePerSecond::new(24.0).unwrap(),
+            filter: None,
+        };
+        let graph = filter_graph(VmafMeasureMode::SameSpec, spec);
         assert!(graph.contains("[1:v]setpts=PTS-STARTPTS[ref]"), "{graph}");
         assert!(!graph.contains("scale="), "{graph}");
         assert!(!graph.contains("fps="), "{graph}");
