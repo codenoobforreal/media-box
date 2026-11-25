@@ -301,11 +301,11 @@ impl SearchJournal for Journal<'_> {
         );
     }
 
-    fn note(&mut self, message: String) {
+    fn note(&mut self, message: &str) {
         self.reporter.note(message);
     }
 
-    fn warning(&mut self, message: String) {
+    fn warning(&mut self, message: &str) {
         self.reporter.warning(message);
     }
 }

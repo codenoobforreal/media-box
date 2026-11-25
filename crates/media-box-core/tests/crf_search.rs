@@ -68,8 +68,8 @@ struct SilentJournal;
 
 impl SearchJournal for SilentJournal {
     fn round(&mut self, _round: u8, _crf: ConstantRateFactor, _score: f64) {}
-    fn note(&mut self, _message: String) {}
-    fn warning(&mut self, _message: String) {}
+    fn note(&mut self, _message: &str) {}
+    fn warning(&mut self, _message: &str) {}
 }
 
 fn searcher(target: f64) -> CrfSearcher {

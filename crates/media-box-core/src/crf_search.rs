@@ -74,8 +74,8 @@ pub trait SampleMeasurer {
 
 pub trait SearchJournal {
     fn round(&mut self, round: u8, crf: ConstantRateFactor, score: f64);
-    fn note(&mut self, message: String);
-    fn warning(&mut self, message: String);
+    fn note(&mut self, message: &str);
+    fn warning(&mut self, message: &str);
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -204,7 +204,7 @@ impl CrfSearcher {
         let dual_spec = measurer.full_spec_is_distinct();
 
         let Some(low_score) = measurer.measure(self.low, VmafMeasureMode::SameSpec)? else {
-            journal.warning("下界 VMAF 无法测得，退回最优画质 CRF".to_owned());
+            journal.warning("下界 VMAF 无法测得，退回最优画质 CRF");
             return Ok(self.low);
         };
 
@@ -213,7 +213,7 @@ impl CrfSearcher {
         self.record(self.low, low_score);
 
         if low_score < target {
-            journal.note("区间下界已无法达标，采用最优画质 CRF".to_owned());
+            journal.note("区间下界已无法达标，采用最优画质 CRF");
             return Ok(self.low);
         }
 
@@ -223,13 +223,13 @@ impl CrfSearcher {
             self.calibration.push(low_score, full_score);
 
             if full_score < target {
-                journal.note("区间下界全规格仍未达标，采用最优画质 CRF".to_owned());
+                journal.note("区间下界全规格仍未达标，采用最优画质 CRF");
                 return Ok(self.low);
             }
         }
 
         let Some(high_score) = measurer.measure(self.high, VmafMeasureMode::SameSpec)? else {
-            journal.warning("上界 VMAF 无法测得，退回最优画质 CRF".to_owned());
+            journal.warning("上界 VMAF 无法测得，退回最优画质 CRF");
             return Ok(self.low);
         };
 
@@ -241,7 +241,7 @@ impl CrfSearcher {
         // 双口径下同规格达标不代表全规格达标，必须等下面的全规格测量再判定，
         // 否则会返回未达标的最高压缩率 CRF。
         if !dual_spec && high_score >= target {
-            journal.note("区间上界已满足目标 VMAF，采用最高压缩率 CRF".to_owned());
+            journal.note("区间上界已满足目标 VMAF，采用最高压缩率 CRF");
             return Ok(self.high);
         }
 
@@ -251,7 +251,7 @@ impl CrfSearcher {
             self.calibration.push(high_score, full_score);
 
             if full_score >= target {
-                journal.note("区间上界全规格已满足目标 VMAF，采用最高压缩率 CRF".to_owned());
+                journal.note("区间上界全规格已满足目标 VMAF，采用最高压缩率 CRF");
                 return Ok(self.high);
             }
         }
@@ -269,7 +269,7 @@ impl CrfSearcher {
             let next_crf = self.next_crf(same_spec_target);
 
             let Some(score) = measurer.measure(next_crf, VmafMeasureMode::SameSpec)? else {
-                journal.warning("搜索过程中 VMAF 无法测得，退回当前最优 CRF".to_owned());
+                journal.warning("搜索过程中 VMAF 无法测得，退回当前最优 CRF");
                 return Ok(self.low);
             };
 
@@ -278,7 +278,7 @@ impl CrfSearcher {
 
             let target_window = same_spec_target..=same_spec_target + TARGET_SCORE_TOLERANCE;
             if target_window.contains(&score) {
-                journal.note("命中目标质量区间，搜索结束".to_owned());
+                journal.note("命中目标质量区间，搜索结束");
                 // 记下命中点：让收尾修正用最新斜率，而不是几轮前的。
                 self.record(next_crf, score);
                 hit_crf = Some(next_crf);
@@ -305,12 +305,12 @@ impl CrfSearcher {
             }
 
             if self.high.as_f64() - self.low.as_f64() <= MIN_SEARCH_SPAN {
-                journal.note("搜索区间已收缩到 0.5 以内，搜索结束".to_owned());
+                journal.note("搜索区间已收缩到 0.5 以内，搜索结束");
                 break;
             }
 
             if round >= MAX_SEARCH_ROUNDS {
-                journal.note(format!("达到最大搜索轮次 {MAX_SEARCH_ROUNDS}，搜索结束"));
+                journal.note(&format!("达到最大搜索轮次 {MAX_SEARCH_ROUNDS}，搜索结束"));
                 break;
             }
         }
@@ -334,14 +334,14 @@ impl CrfSearcher {
         let final_crf = hit_crf.unwrap_or(self.low);
 
         let Some(final_score) = measurer.measure(final_crf, VmafMeasureMode::FullSpec)? else {
-            journal.warning("最终全规格校验未完成，沿用搜索结果".to_owned());
+            journal.warning("最终全规格校验未完成，沿用搜索结果");
             return Ok(final_crf);
         };
 
         let delta = final_score - target;
 
         if delta.abs() <= FINAL_CHECK_TOLERANCE {
-            journal.note(format!("最终全规格校验通过（VMAF {final_score:.2}）"));
+            journal.note(&format!("最终全规格校验通过（VMAF {final_score:.2}）"));
             return Ok(final_crf);
         }
 
@@ -349,7 +349,7 @@ impl CrfSearcher {
         if delta < -FINAL_CHECK_TOLERANCE
             && let Some(adjusted) = self.adjust_by_delta(final_crf, delta)
         {
-            journal.note(format!(
+            journal.note(&format!(
                 "全规格校验偏低，CRF 微调至 {:.2}",
                 adjusted.as_f64()
             ));
