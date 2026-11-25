@@ -209,6 +209,23 @@ mod tests {
     }
 
     #[test]
+    fn help_exposes_every_documented_flag() {
+        // 与 README「参数」表一一对应：改参数时若漏掉帮助文本会在此失败。
+        let help = video_compress_command().render_help().to_string();
+        for flag in [
+            "--input",
+            "--resolution",
+            "--output",
+            "--depth",
+            "--fps",
+            "--preset",
+            "--vmaf",
+        ] {
+            assert!(help.contains(flag), "帮助文本缺少 {flag}：{help}");
+        }
+    }
+
+    #[test]
     fn unknown_subcommand_is_rejected() {
         assert!(
             command()
