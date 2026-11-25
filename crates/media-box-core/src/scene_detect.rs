@@ -1,5 +1,6 @@
 //! 用 ffmpeg scdet 检测场景切点并解析日志。
 
+use crate::ffmpeg_args::FfmpegCommand;
 use crate::interrupter::Canceller;
 use crate::process;
 use anyhow::{Result, bail};
@@ -65,12 +66,13 @@ impl SceneCutDetector {
     }
 
     fn command(&self) -> Command {
-        let mut command = Command::new("ffmpeg");
-        command
-            .args(["-hide_banner", "-nostats", "-an", "-sn", "-dn", "-i"])
-            .arg(&self.input_video_path)
-            .args(["-vf", "scdet", "-f", "null", "-"]);
-        command
+        FfmpegCommand::new()
+            .no_stats()
+            .no_audio_subtitle_data()
+            .input(&self.input_video_path)
+            .video_filter("scdet")
+            .null_output()
+            .build()
     }
 }
 
@@ -94,6 +96,33 @@ fn number_after(log_line: &str, marker: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_keeps_scdet_argument_order() {
+        let detector = SceneCutDetector::new(Path::new("in.mkv"));
+        let command = detector.command();
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            [
+                "-hide_banner",
+                "-nostats",
+                "-an",
+                "-sn",
+                "-dn",
+                "-i",
+                "in.mkv",
+                "-vf",
+                "scdet",
+                "-f",
+                "null",
+                "-",
+            ]
+        );
+    }
 
     #[test]
     fn parses_scdet_line() {
