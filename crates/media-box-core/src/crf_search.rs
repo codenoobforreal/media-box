@@ -162,6 +162,13 @@ impl Calibration {
     }
 }
 
+/// 端点探测的结论：要么直接采用某个边界 CRF，要么继续迭代。
+enum EndpointDecision {
+    UseLow,
+    UseHigh,
+    Continue,
+}
+
 /// CRF 搜索状态机。
 ///
 /// 不变式：`S(low) ≥ S*`、`S(high) < S*`（`S*` 是标定后的同规格目标）。
@@ -194,27 +201,28 @@ impl CrfSearcher {
         CrfRange::new(self.low, self.high)
     }
 
-    pub fn search(
-        mut self,
+    /// 探测两端点：记录同规格分、补标定，判定是否可直接采用边界 CRF。
+    fn probe_endpoints(
+        &mut self,
         measurer: &mut impl SampleMeasurer,
         journal: &mut impl SearchJournal,
-    ) -> Result<ConstantRateFactor> {
+        round: &mut u8,
+        dual_spec: bool,
+    ) -> Result<EndpointDecision> {
         let target = self.target_score.as_f64();
-        let mut round = 0u8;
-        let dual_spec = measurer.full_spec_is_distinct();
 
         let Some(low_score) = measurer.measure(self.low, VmafMeasureMode::SameSpec)? else {
             journal.warning("下界 VMAF 无法测得，退回最优画质 CRF");
-            return Ok(self.low);
+            return Ok(EndpointDecision::UseLow);
         };
 
-        round += 1;
-        journal.round(round, self.low, low_score);
+        *round += 1;
+        journal.round(*round, self.low, low_score);
         self.record(self.low, low_score);
 
         if low_score < target {
             journal.note("区间下界已无法达标，采用最优画质 CRF");
-            return Ok(self.low);
+            return Ok(EndpointDecision::UseLow);
         }
 
         if dual_spec
@@ -224,17 +232,17 @@ impl CrfSearcher {
 
             if full_score < target {
                 journal.note("区间下界全规格仍未达标，采用最优画质 CRF");
-                return Ok(self.low);
+                return Ok(EndpointDecision::UseLow);
             }
         }
 
         let Some(high_score) = measurer.measure(self.high, VmafMeasureMode::SameSpec)? else {
             journal.warning("上界 VMAF 无法测得，退回最优画质 CRF");
-            return Ok(self.low);
+            return Ok(EndpointDecision::UseLow);
         };
 
-        round += 1;
-        journal.round(round, self.high, high_score);
+        *round += 1;
+        journal.round(*round, self.high, high_score);
         self.record(self.high, high_score);
 
         // 只有单口径时同规格分才等于全规格分。
@@ -242,7 +250,7 @@ impl CrfSearcher {
         // 否则会返回未达标的最高压缩率 CRF。
         if !dual_spec && high_score >= target {
             journal.note("区间上界已满足目标 VMAF，采用最高压缩率 CRF");
-            return Ok(self.high);
+            return Ok(EndpointDecision::UseHigh);
         }
 
         if dual_spec
@@ -252,8 +260,26 @@ impl CrfSearcher {
 
             if full_score >= target {
                 journal.note("区间上界全规格已满足目标 VMAF，采用最高压缩率 CRF");
-                return Ok(self.high);
+                return Ok(EndpointDecision::UseHigh);
             }
+        }
+
+        Ok(EndpointDecision::Continue)
+    }
+
+    pub fn search(
+        mut self,
+        measurer: &mut impl SampleMeasurer,
+        journal: &mut impl SearchJournal,
+    ) -> Result<ConstantRateFactor> {
+        let target = self.target_score.as_f64();
+        let mut round = 0u8;
+        let dual_spec = measurer.full_spec_is_distinct();
+
+        match self.probe_endpoints(measurer, journal, &mut round, dual_spec)? {
+            EndpointDecision::UseLow => return Ok(self.low),
+            EndpointDecision::UseHigh => return Ok(self.high),
+            EndpointDecision::Continue => {}
         }
 
         let mut same_spec_target = if dual_spec {
