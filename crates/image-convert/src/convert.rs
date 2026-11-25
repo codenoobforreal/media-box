@@ -9,8 +9,10 @@ use image::codecs::webp::WebPEncoder;
 use image::{ColorType, DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder};
 use media_box_core::media_scan::{ScannedFile, collect_files};
 use media_box_core::output_path::collision_free;
+use std::any::Any;
 use std::collections::HashSet;
 use std::fs;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -203,7 +205,11 @@ fn run_tasks(tasks: &[Task], options: &ConvertOptions) -> Vec<ConvertOutcome> {
                             Err(mpsc::RecvError) => return,
                         }
                     };
-                    let outcome = convert_task(index, tasks, options);
+                    // image 的解码器对畸形输入存在 panic 路径；单文件 panic 只算该文件
+                    // 失败，不能中断整批（panic 仍由默认钩子打印到 stderr 便于定位）。
+                    let outcome =
+                        catch_unwind(AssertUnwindSafe(|| convert_task(index, tasks, options)))
+                            .unwrap_or_else(|payload| failed_after_panic(index, tasks, &*payload));
                     if result_tx.send(outcome).is_err() {
                         return;
                     }
@@ -227,6 +233,25 @@ fn run_tasks(tasks: &[Task], options: &ConvertOptions) -> Vec<ConvertOutcome> {
 enum Task {
     Convert { source: PathBuf, target: PathBuf },
     Failed { source: PathBuf, error: String },
+}
+
+/// 任务内 panic 的兜底结果：保留源/目标信息，错误文本取自 panic 消息。
+fn failed_after_panic(index: usize, tasks: &[Task], payload: &(dyn Any + Send)) -> ConvertOutcome {
+    let (source, target) = match &tasks[index] {
+        Task::Convert { source, target } => (source.clone(), target.clone()),
+        Task::Failed { source, .. } => (source.clone(), PathBuf::new()),
+    };
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| String::from("未知 panic"));
+
+    ConvertOutcome::Failed {
+        source,
+        target,
+        error: format!("内部错误（panic）：{message}"),
+    }
 }
 
 fn convert_task(index: usize, tasks: &[Task], options: &ConvertOptions) -> ConvertOutcome {
@@ -332,6 +357,8 @@ fn encode_to_buffer(
     let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
     match format.encoder() {
         Encoder::Jpeg => {
+            // JPEG 不支持 alpha：encode_image 经 DynamicImage 的 Rgba8 视图降为 RGB，
+            // 直接丢弃 alpha（不合成背景），这是既定行为。
             let mut encoder = JpegEncoder::new_with_quality(&mut cursor, quality);
             apply_metadata(&mut encoder, metadata);
             encoder.encode_image(image)?;
