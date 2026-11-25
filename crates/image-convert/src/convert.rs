@@ -159,7 +159,7 @@ fn plan_dry_run(
             Err(error) => ConvertOutcome::Failed {
                 source: image.path.clone(),
                 target: PathBuf::new(),
-                error,
+                error: error.to_string(),
             },
         })
         .collect()
@@ -177,7 +177,7 @@ fn plan_tasks(images: &[ScannedFile], options: &ConvertOptions, extension: &str)
             }),
             Err(error) => tasks.push(Task::Failed {
                 source: image.path.clone(),
-                error,
+                error: error.to_string(),
             }),
         }
     }
@@ -265,14 +265,13 @@ fn resolve_target(
     source: &ScannedFile,
     options: &ConvertOptions,
     extension: &str,
-) -> std::result::Result<PathBuf, String> {
+) -> std::result::Result<PathBuf, crate::output_path::OutputPathError> {
     output_path(
         &source.path,
         options.output_dir.as_deref(),
         &source.root,
         extension,
     )
-    .map_err(|error| error.to_string())
 }
 
 /// 解码并编码单个文件，原子写盘，返回输出字节数。

@@ -7,6 +7,15 @@ use clap::{Arg, ArgAction, Command, command, value_parser};
 use std::path::PathBuf;
 use std::str::FromStr;
 
+/// 参数组合校验错误：可在调用方按类型分支，展示文本只在 report 层生成。
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ValidationError {
+    #[error("缺少输入：用 -i 指定源图片文件或目录")]
+    MissingInput,
+    #[error("缺少目标格式：用 -f 指定输出格式")]
+    MissingFormat,
+}
+
 /// 有损编码质量解析错误。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum QualityError {
@@ -231,15 +240,15 @@ impl CliArgs {
     /// 校验参数组合，返回错误信息。
     ///
     /// --list-formats 与 --meta list 只读取信息，不需要 -f；其余转换必须显式给出 -f。
-    pub fn validate(&self) -> std::result::Result<(), String> {
+    pub fn validate(&self) -> std::result::Result<(), ValidationError> {
         if self.list_formats || self.metadata == MetadataMode::List {
             return Ok(());
         }
         if self.inputs.is_empty() {
-            return Err("缺少输入：用 -i 指定源图片文件或目录".to_string());
+            return Err(ValidationError::MissingInput);
         }
         if !self.format_explicit {
-            return Err("缺少目标格式：用 -f 指定输出格式".to_string());
+            return Err(ValidationError::MissingFormat);
         }
         Ok(())
     }
