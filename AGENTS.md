@@ -14,20 +14,22 @@ Cargo workspace，三个成员：
 
 依赖方向：两个二进制都依赖 `media-box-core`；`image-convert` 复用 core 的 `collect_files` / `ScannedFile` 与 `collision_free`。
 
+**core 的 feature 分层**：`app`（默认开启）门控 `compressor`、`ui` 与 `interrupter::install`——它们需要 crossterm/ctrlc。纯计算下游用 `default-features = false` 关掉，`image-convert` 即如此，其依赖树不含 crossterm/ctrlc。新增「只有二进制需要」的能力时放进 `app`，不要无条件塞进库。
+
 ## media-box-core 模块地图
 
 | 模块 | 职责 |
 |---|---|
 | `byte_size` | `ByteSize` 与人类可读体积格式化 |
-| `compressor` | 压缩流水线编排：阶段推进、逐文件调度、取消处理 |
+| `compressor` | 压缩流水线编排：阶段推进、逐文件调度、取消处理（`app` feature） |
 | `crf_probe` | CRF 搜索的测量实现（ffmpeg + libvmaf 采样）与搜索日志适配 |
 | `crf_search` | CRF 搜索状态机：标定、插值、收敛（纯逻辑，无外部依赖） |
 | `encode_job` | 正式编码的 ffmpeg 命令组装、进度解析与执行 |
 | `encoder` | 分辨率/帧率缩减设置与 AV1 编码参数，拼 `-vf` |
-| `ffmpeg_args` | ffmpeg 命令构建器：按调用顺序追加公共选项，纯组装不启动进程 |
+| `ffmpeg_args` | ffmpeg 命令构建器：按调用顺序追加公共选项，纯组装不启动进程（crate 内可见） |
 | `film_grain` | film-grain 强度计算：调用 YDIF 探测并汇总代表值 |
 | `format` | 时长与 UTC 时间戳格式化 |
-| `interrupter` | Ctrl+C 处理与取消状态 |
+| `interrupter` | 取消状态与 Ctrl+C 处理（`install` 属 `app` feature） |
 | `media_scan` | 按扩展名递归收集文件（跳过符号链接、去重） |
 | `output_path` | 输出基名/最终路径、同批冲突去重 |
 | `probe` | 用 ffprobe 读元数据（分辨率、帧率、时长、体积） |
@@ -38,7 +40,7 @@ Cargo workspace，三个成员：
 | `scene_detect` | `ffmpeg scdet` 场景切点检测与日志解析 |
 | `scene_sampler` | 由切点规划场景样本（长度、边缘排除、回退） |
 | `stats` | 中位数等统计工具 |
-| `ui` | 终端仪表盘渲染 |
+| `ui` | 终端仪表盘渲染（`app` feature，依赖 crossterm） |
 | `value` | 数值 newtype（CRF、preset、VMAF、帧率、film-grain）及解析 |
 | `vmaf` | libvmaf 滤镜图构造（同规格 / 全规格两口径） |
 | `ydif_probe` | `signalstats` YDIF 探测 |
