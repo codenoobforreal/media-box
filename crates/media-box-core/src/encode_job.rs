@@ -40,6 +40,66 @@ pub fn build_command(
     builder.raw(&["-y", &output.to_string_lossy()]).build()
 }
 
+/// 执行编码并解析进度；失败或取消时删除半成品输出，成功返回输出字节数。
+///
+/// 优先用 `total_size` 进度行；ffmpeg 未上报时回退到输出文件的 metadata，
+/// 避免成功编码却因缺少进度字段而丢失成功报告。
+pub fn run(
+    command: Command,
+    output_path: &Path,
+    canceller: &Canceller,
+    reporter: &Reporter,
+    started_at: Instant,
+    total_duration: Duration,
+) -> Result<u64> {
+    let mut parser = FfmpegProgressLineParser::default();
+    let mut emitter = ProgressEmitter::new(None, total_duration, MIN_DELTA_PERCENT);
+    let mut last_published_at = Instant::now();
+
+    let result = process::run(command, canceller, |stream, line| {
+        if stream != Stream::Stdout {
+            return;
+        }
+
+        let Some(sample) = parser.push_line(line) else {
+            return;
+        };
+
+        if last_published_at.elapsed() < PROGRESS_PUBLISH_INTERVAL {
+            return;
+        }
+
+        if let Some(progress) = emitter.update(sample, started_at.elapsed()) {
+            reporter.progress(progress);
+            last_published_at = Instant::now();
+        }
+    });
+
+    match result {
+        Ok(output) if output.success() => {
+            reporter.progress(ProgressSnapshot::new(
+                100.0,
+                started_at.elapsed(),
+                Some(Duration::ZERO),
+            ));
+            match parser.total_size_bytes() {
+                Some(bytes) => Ok(bytes),
+                None => Ok(fs::metadata(output_path)
+                    .with_context(|| format!("读取输出文件体积 {}", output_path.display()))?
+                    .len()),
+            }
+        }
+        Ok(output) => {
+            let _ = fs::remove_file(output_path);
+            bail!("压缩失败：{}", output.failure_message())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(output_path);
+            Err(error)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,65 +158,5 @@ mod tests {
                 "out.mp4",
             ]
         );
-    }
-}
-
-/// 执行编码并解析进度；失败或取消时删除半成品输出，成功返回输出字节数。
-///
-/// 优先用 `total_size` 进度行；ffmpeg 未上报时回退到输出文件的 metadata，
-/// 避免成功编码却因缺少进度字段而丢失成功报告。
-pub fn run(
-    command: Command,
-    output_path: &Path,
-    canceller: &Canceller,
-    reporter: &Reporter,
-    started_at: Instant,
-    total_duration: Duration,
-) -> Result<u64> {
-    let mut parser = FfmpegProgressLineParser::default();
-    let mut emitter = ProgressEmitter::new(None, total_duration, MIN_DELTA_PERCENT);
-    let mut last_published_at = Instant::now();
-
-    let result = process::run(command, canceller, |stream, line| {
-        if stream != Stream::Stdout {
-            return;
-        }
-
-        let Some(sample) = parser.push_line(line) else {
-            return;
-        };
-
-        if last_published_at.elapsed() < PROGRESS_PUBLISH_INTERVAL {
-            return;
-        }
-
-        if let Some(progress) = emitter.update(sample, started_at.elapsed()) {
-            reporter.progress(progress);
-            last_published_at = Instant::now();
-        }
-    });
-
-    match result {
-        Ok(output) if output.success() => {
-            reporter.progress(ProgressSnapshot::new(
-                100.0,
-                started_at.elapsed(),
-                Some(Duration::ZERO),
-            ));
-            match parser.total_size_bytes() {
-                Some(bytes) => Ok(bytes),
-                None => Ok(fs::metadata(output_path)
-                    .with_context(|| format!("读取输出文件体积 {}", output_path.display()))?
-                    .len()),
-            }
-        }
-        Ok(output) => {
-            let _ = fs::remove_file(output_path);
-            bail!("压缩失败：{}", output.failure_message())
-        }
-        Err(error) => {
-            let _ = fs::remove_file(output_path);
-            Err(error)
-        }
     }
 }
