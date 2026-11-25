@@ -15,7 +15,6 @@ use std::time::Duration;
 use hotpath::criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 use media_box_core::crf_search::{CrfSearcher, SampleMeasurer, SearchJournal};
 use media_box_core::encoder::{BitrateReduceSettings, FrameRateReduce, ResolutionDownScaling};
-use media_box_core::film_grain::representative_mean;
 use media_box_core::media_scan::collect_videos;
 use media_box_core::progress::{FfmpegProgressLineParser, FfmpegProgressSample};
 use media_box_core::progress::{MIN_DELTA_PERCENT, ProgressEmitter};
@@ -28,6 +27,7 @@ use media_box_core::vmaf::{VmafMeasureMode, filter_graph, parse_score};
 use media_box_core::ydif_probe::parse_ydif_value_from_line;
 use media_box_core::ydif_stats::YdifValueSeries;
 use media_box_core::ydif_stats::film_grain_strength;
+use media_box_core::ydif_stats::representative_mean;
 
 /// 简单的线性同余伪随机数：基准数据要确定，不引入 rand 依赖。
 fn lcg(seed: u64) -> impl FnMut() -> f64 {
