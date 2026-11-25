@@ -7,7 +7,7 @@ use crate::progress::{
     FfmpegProgressLineParser, MIN_DELTA_PERCENT, ProgressEmitter, ProgressSnapshot,
 };
 use crate::report::Reporter;
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -48,6 +48,9 @@ pub fn build_command(
 }
 
 /// 执行编码并解析进度；失败或取消时删除半成品输出，成功返回输出字节数。
+///
+/// 优先用 `total_size` 进度行；ffmpeg 未上报时回退到输出文件的 metadata，
+/// 避免成功编码却因缺少进度字段而丢失成功报告。
 pub fn run(
     command: Command,
     output_path: &Path,
@@ -55,7 +58,7 @@ pub fn run(
     reporter: &Reporter,
     started_at: Instant,
     total_duration: Duration,
-) -> Result<Option<u64>> {
+) -> Result<u64> {
     let mut parser = FfmpegProgressLineParser::default();
     let mut emitter = ProgressEmitter::new(None, total_duration, MIN_DELTA_PERCENT);
     let mut last_published_at = Instant::now();
@@ -86,7 +89,12 @@ pub fn run(
                 started_at.elapsed(),
                 Some(Duration::ZERO),
             ));
-            Ok(parser.total_size_bytes())
+            match parser.total_size_bytes() {
+                Some(bytes) => Ok(bytes),
+                None => Ok(fs::metadata(output_path)
+                    .with_context(|| format!("读取输出文件体积 {}", output_path.display()))?
+                    .len()),
+            }
         }
         Ok(output) => {
             let _ = fs::remove_file(output_path);

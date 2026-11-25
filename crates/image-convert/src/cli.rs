@@ -91,7 +91,7 @@ impl From<CliArgs> for ConvertOptions {
 /// | `-i` | `--input` | 路径，可重复 | 必填 | 源图片文件或目录 |
 /// | `-o` | `--output` | 目录 | 源所在目录 | 输出目录 |
 /// | `-f` | `--format` | 目标格式 | 转换时必填 | 见 `--help` 的格式清单 |
-/// | `-q` | `--quality` | `1..=100` | 85 | JPEG/AVIF 有损质量 |
+/// | `-q` | `--quality` | `1..=100` | 85 | JPEG 有损质量 |
 /// | `-d` | `--depth` | `0..=255` | 0 | 目录递归深度 |
 /// | `-j` | `--jobs` | `N` | CPU 逻辑核数 | 并发任务数 |
 /// | `--overwrite` | `--overwrite` | 开关 | 关 | 覆盖已存在输出 |
@@ -131,7 +131,7 @@ pub fn command() -> Command {
         .arg(
             Arg::new("list_formats")
                 .long("list-formats")
-                .help("打印输入/输出格式能力矩阵后退出")
+                .help("打印输出格式清单后退出")
                 .action(ArgAction::SetTrue),
         )
         .arg(
@@ -139,7 +139,7 @@ pub fn command() -> Command {
                 .short('q')
                 .long("quality")
                 .value_name("1..=100")
-                .help("JPEG/AVIF 有损质量，默认 85；无损格式忽略")
+                .help("JPEG 有损质量，默认 85；无损格式忽略")
                 .value_parser(value_parser!(Quality))
                 .default_value("85"),
         )

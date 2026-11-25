@@ -156,15 +156,13 @@ impl Compressor {
             metadata.duration(),
         )?;
 
-        Ok(output_size.map(|bytes| {
-            SuccessReport::new(
-                metadata.size(),
-                ByteSize::b(bytes),
-                metadata.duration(),
-                started_at.elapsed(),
-                command_string,
-            )
-        }))
+        Ok(Some(SuccessReport::new(
+            metadata.size(),
+            ByteSize::b(output_size),
+            metadata.duration(),
+            started_at.elapsed(),
+            command_string,
+        )))
     }
 
     fn scene_samples(
