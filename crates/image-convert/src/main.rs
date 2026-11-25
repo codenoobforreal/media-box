@@ -15,9 +15,7 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if let Err(error) = args.validate() {
-        anyhow::bail!(error);
-    }
+    args.validate()?;
 
     let options: convert::ConvertOptions = args.into();
 
