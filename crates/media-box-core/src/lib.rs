@@ -26,4 +26,6 @@ pub mod vmaf;
 pub mod ydif_probe;
 pub mod ydif_stats;
 
-pub use value::{ConstantRateFactor, EncoderPreset, FilmGrain, FrameRatePerSecond, VmafScore};
+pub use value::{
+    ConstantRateFactor, EncoderPreset, FilmGrain, FrameRatePerSecond, Quality, VmafScore,
+};

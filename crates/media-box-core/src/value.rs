@@ -99,6 +99,27 @@ impl Default for VmafScore {
     }
 }
 
+/// 有损编码质量（1~100），用于 JPEG 之类支持质量参数的输出格式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Quality(u8);
+
+impl Quality {
+    pub fn new(value: u8) -> Result<Self, ValueError> {
+        ensure_range(f64::from(value), 1.0, 100.0, "质量值")?;
+        Ok(Self(value))
+    }
+
+    pub fn as_u8(self) -> u8 {
+        self.0
+    }
+}
+
+impl Default for Quality {
+    fn default() -> Self {
+        Self(85)
+    }
+}
+
 /// film-grain 强度（0~50）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FilmGrain(u8);
@@ -165,6 +186,7 @@ impl_from_str_via_new!(
     ConstantRateFactor,
     VmafScore,
     FilmGrain,
+    Quality,
     FrameRatePerSecond,
     EncoderPreset
 );
@@ -241,6 +263,24 @@ mod tests {
             "18.25".parse::<ConstantRateFactor>().unwrap().as_f64(),
             18.25
         );
+    }
+
+    #[test]
+    fn quality_accepts_only_one_to_hundred() {
+        assert!(Quality::new(1).is_ok());
+        assert!(Quality::new(100).is_ok());
+        assert_eq!(
+            Quality::new(0).unwrap_err(),
+            ValueError::OutOfRange {
+                value: 0.0,
+                min: 1.0,
+                max: 100.0,
+                what: "质量值",
+            }
+        );
+        assert!(Quality::new(101).is_err());
+        assert_eq!(Quality::default().as_u8(), 85);
+        assert_eq!("70".parse::<Quality>().unwrap().as_u8(), 70);
     }
 
     #[test]

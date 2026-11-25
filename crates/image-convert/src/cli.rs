@@ -4,8 +4,8 @@ use crate::convert::ConvertOptions;
 use crate::format::TargetFormat;
 use crate::metadata::MetadataMode;
 use clap::{Arg, ArgAction, Command, command, value_parser};
+use media_box_core::value::Quality;
 use std::path::PathBuf;
-use std::str::FromStr;
 
 /// 参数组合校验错误：可在调用方按类型分支，展示文本只在 report 层生成。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -14,47 +14,6 @@ pub enum ValidationError {
     MissingInput,
     #[error("缺少目标格式：用 -f 指定输出格式")]
     MissingFormat,
-}
-
-/// 有损编码质量解析错误。
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum QualityError {
-    #[error("质量值 {value} 超出范围，必须在 1 到 100 之间。")]
-    OutOfRange { value: u8 },
-    #[error("无法解析质量值 {0}")]
-    ParseInt(#[from] std::num::ParseIntError),
-}
-
-/// 有损编码质量，取值 1..=100。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Quality(u8);
-
-impl Quality {
-    pub fn new(value: u8) -> Result<Self, QualityError> {
-        if (1..=100).contains(&value) {
-            Ok(Self(value))
-        } else {
-            Err(QualityError::OutOfRange { value })
-        }
-    }
-
-    pub fn as_u8(self) -> u8 {
-        self.0
-    }
-}
-
-impl Default for Quality {
-    fn default() -> Self {
-        Self(85)
-    }
-}
-
-impl FromStr for Quality {
-    type Err = QualityError;
-
-    fn from_str(text: &str) -> Result<Self, QualityError> {
-        Self::new(text.parse()?)
-    }
 }
 
 /// 命令行参数。
