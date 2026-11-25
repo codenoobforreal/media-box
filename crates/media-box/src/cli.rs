@@ -6,33 +6,6 @@ use media_box_core::resolution::Resolution;
 use media_box_core::value::{EncoderPreset, FrameRatePerSecond, VmafScore};
 use std::path::PathBuf;
 
-/// 解析后的 video-compress 参数。
-#[non_exhaustive]
-#[derive(Debug, PartialEq, Clone)]
-pub struct CliArgs {
-    pub inputs: Vec<PathBuf>,
-    pub resolution: Option<Resolution>,
-    pub output_dir: Option<PathBuf>,
-    pub depth: u8,
-    pub fps: Option<FrameRatePerSecond>,
-    pub preset: EncoderPreset,
-    pub vmaf_score: VmafScore,
-}
-
-impl From<CliArgs> for CompressOptions {
-    fn from(args: CliArgs) -> Self {
-        Self::new(
-            args.inputs,
-            args.resolution,
-            args.output_dir,
-            args.depth,
-            args.fps,
-            args.preset,
-            args.vmaf_score,
-        )
-    }
-}
-
 /// 顶层命令：`media-box <子命令>`。
 pub fn command() -> Command {
     command!()
@@ -120,7 +93,7 @@ fn video_compress_command() -> Command {
         )
 }
 
-pub fn parse() -> CliArgs {
+pub fn parse() -> CompressOptions {
     let matches = command().get_matches();
 
     match matches.subcommand() {
@@ -129,35 +102,35 @@ pub fn parse() -> CliArgs {
     }
 }
 
-fn parse_video_compress(matches: &ArgMatches) -> CliArgs {
+fn parse_video_compress(matches: &ArgMatches) -> CompressOptions {
     // clap 的 required(true) 已保证至少一个输入。
     let inputs = matches
         .get_many::<PathBuf>("input")
         .map(|values| values.cloned().collect())
         .unwrap_or_default();
 
-    CliArgs {
+    CompressOptions::new(
         inputs,
-        resolution: matches.get_one::<Resolution>("resolution").copied(),
-        output_dir: matches.get_one::<PathBuf>("output").cloned(),
-        depth: matches.get_one::<u8>("depth").copied().unwrap_or_default(),
-        fps: matches.get_one::<FrameRatePerSecond>("fps").copied(),
-        preset: matches
+        matches.get_one::<Resolution>("resolution").copied(),
+        matches.get_one::<PathBuf>("output").cloned(),
+        matches.get_one::<u8>("depth").copied().unwrap_or_default(),
+        matches.get_one::<FrameRatePerSecond>("fps").copied(),
+        matches
             .get_one::<EncoderPreset>("preset")
             .copied()
             .unwrap_or_default(),
-        vmaf_score: matches
+        matches
             .get_one::<VmafScore>("vmaf")
             .copied()
             .unwrap_or_default(),
-    }
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn parse_from(args: &[&str]) -> CliArgs {
+    fn parse_from(args: &[&str]) -> CompressOptions {
         let matches = command().try_get_matches_from(args).expect("参数应合法");
 
         match matches.subcommand() {
