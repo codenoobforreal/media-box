@@ -91,6 +91,11 @@ pub fn collect_files(
         collector.accept_file(file);
     }
 
+    // 目录遍历顺序由文件系统决定；按路径排序让同一输入的批次顺序稳定。
+    collector
+        .files
+        .sort_by(|left, right| left.path.cmp(&right.path));
+
     Ok(collector.files)
 }
 

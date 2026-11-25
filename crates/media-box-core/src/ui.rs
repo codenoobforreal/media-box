@@ -6,7 +6,7 @@ use crossterm::queue;
 use crossterm::style::{Attribute, Color, ResetColor, SetAttribute, SetForegroundColor};
 use crossterm::terminal::{BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate, size};
 use std::fmt::Write as _;
-use std::io::{BufWriter, Write, stdout};
+use std::io::{BufWriter, IsTerminal, Write, stdout};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::thread::{self, JoinHandle};
@@ -65,7 +65,10 @@ impl Ui {
 
 fn spawn_renderer(receiver: Receiver<Event>, queue: Vec<PathBuf>) -> JoinHandle<()> {
     thread::spawn(move || {
-        let mut context = RenderContext::new(queue);
+        // 管道 / 重定向下不写光标控制序列，避免把日志文件刷成一片转义符；
+        // 只在结束时打印总结。
+        let interactive = stdout().is_terminal();
+        let mut context = RenderContext::new(queue, interactive);
         let mut writer = BufWriter::new(stdout());
         let mut frame = 0usize;
 
@@ -109,10 +112,16 @@ struct RenderContext {
     cancelled: bool,
     finished: bool,
     started_at: Instant,
+    /// stdout 是否为终端；非终端只输出最终总结，不写光标控制序列。
+    interactive: bool,
 }
 
 impl RenderContext {
-    fn new(queue: Vec<PathBuf>) -> Self {
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "渲染上下文的构造器，interactive 表示 stdout 是否为终端"
+    )]
+    fn new(queue: Vec<PathBuf>, interactive: bool) -> Self {
         let total = queue.len();
 
         Self {
@@ -130,6 +139,7 @@ impl RenderContext {
             cancelled: false,
             finished: false,
             started_at: Instant::now(),
+            interactive,
         }
     }
 
@@ -188,20 +198,24 @@ impl RenderContext {
     }
 
     fn render<W: Write>(&self, writer: &mut W, spinner: &str) {
-        let _ = queue!(
-            writer,
-            BeginSynchronizedUpdate,
-            MoveTo(0, 0),
-            Clear(ClearType::FromCursorDown),
-        );
+        if self.interactive {
+            let _ = queue!(
+                writer,
+                BeginSynchronizedUpdate,
+                MoveTo(0, 0),
+                Clear(ClearType::FromCursorDown),
+            );
+        }
 
         if self.finished {
             self.render_summary(writer);
-        } else {
+        } else if self.interactive {
             self.render_dashboard(writer, spinner);
         }
 
-        let _ = queue!(writer, EndSynchronizedUpdate);
+        if self.interactive {
+            let _ = queue!(writer, EndSynchronizedUpdate);
+        }
         let _ = writer.flush();
     }
 

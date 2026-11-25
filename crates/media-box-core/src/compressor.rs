@@ -86,7 +86,7 @@ impl Compressor {
     ///
     /// 输入路径下没有任何视频文件时返回错误。
     pub fn run(&self, canceller: &Canceller) -> Result<()> {
-        let mut queue = collect_videos(&self.options.inputs, Some(self.options.depth))?;
+        let queue = collect_videos(&self.options.inputs, Some(self.options.depth))?;
 
         if queue.is_empty() {
             bail!("在输入路径中未找到视频文件：\n{:?}", self.options.inputs);
@@ -95,7 +95,8 @@ impl Compressor {
         let ui = Ui::install(&queue);
         let reporter = ui.reporter();
 
-        while let Some(video_path) = queue.pop() {
+        // 按扫描顺序（已按路径排序）处理，保证同一输入的处理顺序稳定。
+        for video_path in queue {
             if canceller.is_cancelled() {
                 reporter.cancelled();
                 break;
