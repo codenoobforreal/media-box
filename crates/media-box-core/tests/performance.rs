@@ -33,22 +33,31 @@ fn progress_emission_is_bounded_by_min_delta() {
     assert!(emitted >= 1, "至少应发射一次进度");
 }
 
-/// 任意密度的切点都只能规划出少量短样本：每个样本都意味着一次编码 + 一次 VMAF。
+/// 大量有效场景时只取少量样本：每个样本都意味着一次编码 + 一次 VMAF。
 #[test]
 fn scene_sampling_bounds_the_search_workload() {
+    // 每 3.6s 一个切点、总时长 7200s：场景时长 3.6s 超过 2s 下限，
+    // 因此走到「过滤 → 排序 → 取 3」的高成本路径，而不是空场景回退。
     let records: Vec<SceneCutDetectionRecord> = (0..2_000)
         .map(|index| {
             SceneCutDetectionRecord::new(
                 0.1 + f64::from(index % 80) / 100.0,
-                f64::from(index) * 1.8,
+                f64::from(index) * 3.6,
             )
         })
         .collect();
-    let total = Duration::from_secs(3_600);
+    let total = Duration::from_secs(7_200);
 
     let samples = SceneSampler::default().plan_samples(&records, total);
 
     assert!(!samples.is_empty(), "长视频应有采样点");
+    // 锁定高成本路径：回退采样固定取 20s 窗口，场景规划则受场景长度约束。
+    assert!(
+        samples
+            .iter()
+            .all(|sample| sample.duration() < Duration::from_secs(20)),
+        "样本均取自场景规划，而非回退采样：{samples:?}"
+    );
     assert!(
         samples.len() <= 3,
         "规划了 {} 个样本，搜索成本失控",

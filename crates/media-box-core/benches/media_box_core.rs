@@ -119,9 +119,9 @@ fn bench_log_parse(c: &mut Criterion) {
     vmaf_lines.push("Parsed_libvmaf_0: all frames processed".to_owned());
     vmaf_lines.push("frame= 1234 fps= 45".to_owned());
 
+    // scdet / ydif 逐行扫 2000 行，按行数计吞吐量。
     let mut group = tuned(c.benchmark_group("log-parse"));
     group.throughput(Throughput::Elements(scdet_lines.len() as u64));
-
     group.bench_function("scdet", |b| {
         b.iter(|| {
             for line in &scdet_lines {
@@ -129,7 +129,6 @@ fn bench_log_parse(c: &mut Criterion) {
             }
         })
     });
-
     group.bench_function("ydif", |b| {
         b.iter(|| {
             for line in &ydif_lines {
@@ -137,38 +136,41 @@ fn bench_log_parse(c: &mut Criterion) {
             }
         })
     });
+    group.finish();
 
-    group.bench_function("vmaf-score", |b| {
-        b.iter(|| parse_score(black_box(&vmaf_lines)))
-    });
-
+    // parse_score 从尾部反向扫描，通常只读末尾几行：单独成组且不设吞吐量，
+    // 避免套用 scdet 的 2000 elements 严重高估。
+    let mut group = tuned(c.benchmark_group("vmaf-score"));
+    group.bench_function("parse", |b| b.iter(|| parse_score(black_box(&vmaf_lines))));
     group.finish();
 }
 
 fn bench_sampler(c: &mut Criterion) {
-    // 一小时的视频、每 1.8s 一个切点：合并逻辑每两刀并一次。
+    // 两小时的视频、每 3.6s 一个切点：切点间隔大于 1s 合并阈值，因此各自独立；
+    // 场景 3.6s 长于 2s 下限，过滤后仍有大量有效场景，覆盖排序取 3 的高成本路径。
     let records: Vec<SceneCutDetectionRecord> = (0..2_000)
         .map(|index| {
             SceneCutDetectionRecord::new(
                 0.1 + f64::from(index % 80) / 100.0,
-                f64::from(index) * 1.8,
+                f64::from(index) * 3.6,
             )
         })
         .collect();
-    let total = Duration::from_secs(3_600);
+    let total = Duration::from_secs(7_200);
     let sampler = SceneSampler::default();
 
     let mut group = tuned(c.benchmark_group("sampler"));
     group.throughput(Throughput::Elements(records.len() as u64));
-
     group.bench_function("plan", |b| {
         b.iter(|| black_box(sampler.plan_samples(black_box(&records), total)))
     });
+    group.finish();
 
-    group.bench_function("fallback", |b| {
+    // 回退路径只看总时长、不遍历切点，单独成组且不设吞吐量。
+    let mut group = tuned(c.benchmark_group("sampler/fallback"));
+    group.bench_function("no-cuts", |b| {
         b.iter(|| black_box(sampler.fallback_samples(total)))
     });
-
     group.finish();
 }
 
@@ -282,11 +284,17 @@ fn bench_value(c: &mut Criterion) {
     group.finish();
 }
 
-/// 基准用的临时目录树：4 层、约 85 个目录、每个目录 3 个混合扩展名文件。
-/// 放在 crate 的 `.tmp-tests/` 下（与测试约定一致），Drop 时自动删除。
+/// 基准用的临时目录树：根 + 4 层子目录，每个目录 4 个子目录、3 个混合扩展名文件，
+/// 共 341 个目录、1023 个物理文件。放在 crate 的 `.tmp-tests/` 下（与测试约定一致），
+/// Drop 时自动删除。
+const SCAN_TREE_BRANCHING: usize = 4;
+
 struct ScanTree {
     root: PathBuf,
+    /// 全树：1 + 4 + 16 + 64 + 256 = 341 个目录 × 3 文件 = 1023。
     file_count: usize,
+    /// `Some(1)` 只覆盖根与 4 个一级子目录：5 × 3 = 15 个物理文件。
+    depth_one_file_count: usize,
 }
 
 impl ScanTree {
@@ -316,7 +324,7 @@ impl ScanTree {
                 *file_count += 1;
             }
             if depth > 0 {
-                for sub in 0..4u8 {
+                for sub in 0..SCAN_TREE_BRANCHING as u8 {
                     walk(
                         &dir.join(format!("sub-{sub}")),
                         depth - 1,
@@ -329,8 +337,13 @@ impl ScanTree {
         }
 
         walk(&root, 4, &extensions, &mut file_count).expect("构建扫描基准目录树失败");
+        let depth_one_file_count = extensions.len() * (1 + SCAN_TREE_BRANCHING);
 
-        Self { root, file_count }
+        Self {
+            root,
+            file_count,
+            depth_one_file_count,
+        }
     }
 }
 
@@ -343,16 +356,19 @@ impl Drop for ScanTree {
 fn bench_scan(c: &mut Criterion) {
     let tree = ScanTree::build();
 
+    // 吞吐量按每个基准实际扫描的文件数分别设置：Criterion 在注册时捕获 group 的吞吐量，
+    // 因此这里在每次 bench_function 之前切换，两个基准不会互相套用。
     let mut group = tuned(c.benchmark_group("scan"));
-    group.throughput(Throughput::Elements(tree.file_count as u64));
     group.measurement_time(Duration::from_secs(3));
 
+    group.throughput(Throughput::Elements(tree.file_count as u64));
     group.bench_function("collect/unlimited", |b| {
-        b.iter(|| black_box(collect_videos(std::slice::from_ref(&tree.root), None)))
+        b.iter(|| black_box(collect_videos(std::slice::from_ref(&tree.root), None)));
     });
 
+    group.throughput(Throughput::Elements(tree.depth_one_file_count as u64));
     group.bench_function("collect/depth-1", |b| {
-        b.iter(|| black_box(collect_videos(std::slice::from_ref(&tree.root), Some(1))))
+        b.iter(|| black_box(collect_videos(std::slice::from_ref(&tree.root), Some(1))));
     });
 
     group.finish();
