@@ -303,12 +303,21 @@ flowchart TD
 ```bash
 cargo test                      # 全部
 cargo test --test crf_search    # 只跑搜索策略的行为测试
+cargo test --test performance   # 只跑性能预算测试
 cargo test --lib                # 只跑模块内单元测试
+cargo bench -p media-box-core   # 进程内基准（Criterion，harness = false）
 cargo clippy --all-targets
 cargo fmt --check
 ```
 
 测试**不需要 ffmpeg**：搜索逻辑用合成曲线驱动，解析逻辑用固定文本驱动。
+
+### 性能测量
+
+- **基准与预算测试分离**：`benches/media_box_core.rs` 用 Criterion 测墙钟时间（解析、节流、采样规划、统计、滤镜拼接、目录扫描、CRF 搜索状态机）；`tests/performance.rs` 与 `tests/crf_search.rs` 用确定性断言测次数/规模上界（进度发射、样本数、搜索测量次数）。前者回答「多快」，后者回答「会不会突然变慢」，别混在一起。
+- **禁止外部进程**：基准和性能测试不得启动 ffmpeg / ffprobe 或任何子进程。依赖编码与 VMAF 的阶段由 `SampleMeasurer` 的合成实现驱动；需要真实二进制的 e2e 只属于 `image-convert`，且只驱动本地编译产物与仓库内静态图片。
+- **benchmark target 必须 `harness = false`**：`crates/media-box-core/Cargo.toml` 为 `media_box_core` 声明了 `[[bench]]`，否则 cargo 用 libtest 接管，Criterion 的 `main` 不会执行，`cargo bench` 会静默跑 0 个基准。
+- **双向编译**：基准依赖 hotpath 的 Criterion 适配层（`hotpath::criterion`），改动后要同时通过 `cargo check --all-targets` 与 `cargo check --all-targets --features hotpath-alloc`，确认 feature 门控两侧都完整。
 
 ### 副作用与夹具
 

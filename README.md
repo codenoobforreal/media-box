@@ -179,12 +179,16 @@ image-convert -i D:\images -f png --meta list
 ```bash
 cargo test                      # 全部
 cargo test --test crf_search    # 只跑搜索策略的行为测试
+cargo test --test performance   # 只跑性能预算测试（次数/规模上界）
 cargo test --lib                # 只跑模块内单元测试
+cargo bench -p media-box-core   # 进程内基准（Criterion）
 cargo clippy --all-targets      # 建议与测试一起跑
 cargo fmt --check
 ```
 
 `media-box` 的搜索与解析逻辑用合成曲线和固定文本驱动；`image-convert` 为纯 Rust，端到端测试直接使用仓库内自带的图片样本（`crates/image-convert/tests/fixtures/`）。二者测试都不需要外部二进制，也**不联网**；测试临时文件只写在项目内的 `.tmp-tests/`，结束自动删除。
+
+**性能测量不依赖 ffmpeg/ffprobe**：基准（`crates/media-box-core/benches/media_box_core.rs`）只测日志解析、进度节流、场景规划、统计、滤镜拼接、目录扫描和 CRF 搜索状态机等纯计算路径；需要编码与 VMAF 测量的阶段由合成测量器驱动，不会启动任何外部进程。性能预算测试（`tests/performance.rs`、`tests/crf_search.rs`）约束发射次数、样本数量与测量次数上界，防止成本失控。
 
 ## 参考文档
 

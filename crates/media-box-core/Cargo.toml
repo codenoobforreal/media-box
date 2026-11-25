@@ -15,6 +15,10 @@ thiserror.workspace = true
 criterion.workspace = true
 hotpath.workspace = true
 
+[[bench]]
+name = "media_box_core"
+harness = false
+
 [features]
 # 本地剖析，全部 opt-in：未启用时 hotpath 的宏与适配层都是 no-op，不编译任何剖析依赖。
 hotpath = ["hotpath/hotpath"]
