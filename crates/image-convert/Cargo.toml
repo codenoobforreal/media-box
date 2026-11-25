@@ -10,7 +10,8 @@ anyhow.workspace = true
 clap.workspace = true
 # 个人工具定位，只启用常用格式：png、jpg/jpeg、gif、webp、bmp。
 image.workspace = true
-media-box-core.workspace = true
+# 只用文件扫描与输出路径推导，不需要终端 UI / Ctrl+C / 压缩流水线。
+media-box-core = { workspace = true, default-features = false }
 thiserror.workspace = true
 
 [lints]

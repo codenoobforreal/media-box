@@ -7,8 +7,10 @@ description = "media-box 生态核心库：媒体扫描、输出路径推导、V
 
 [dependencies]
 anyhow.workspace = true
-crossterm.workspace = true
-ctrlc.workspace = true
+# 终端渲染与 Ctrl+C 处理只在 `app` feature 下编译：纯计算/文件类下游（如
+# image-convert）关掉默认特性即可不引入这两个依赖。
+crossterm = { workspace = true, optional = true }
+ctrlc = { workspace = true, optional = true }
 thiserror.workspace = true
 
 [dev-dependencies]
@@ -20,6 +22,10 @@ name = "media_box_core"
 harness = false
 
 [features]
+# 应用装配层：终端仪表盘、Ctrl+C 处理与压缩流水线编排。纯计算下游
+# （image-convert）用 default-features = false 关掉，不编译 crossterm/ctrlc。
+default = ["app"]
+app = ["dep:crossterm", "dep:ctrlc"]
 # 本地剖析，全部 opt-in：未启用时 hotpath 的宏与适配层都是 no-op，不编译任何剖析依赖。
 hotpath = ["hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]

@@ -1,8 +1,9 @@
 //! Ctrl+C 取消：区分「用户取消」与普通失败，支持二次强退。
 
-use anyhow::{Context, Result};
-use std::process;
-use std::sync::{Arc, Mutex};
+use anyhow::Result;
+use std::sync::Mutex;
+#[cfg(feature = "app")]
+use {anyhow::Context, std::process, std::sync::Arc};
 
 /// 取消标记：把「用户取消」与普通失败区分开。
 ///
@@ -82,6 +83,7 @@ impl Canceller {
 }
 
 /// 注册全局 Ctrl+C handler，返回共享的 Canceller
+#[cfg(feature = "app")]
 pub fn install() -> Result<Arc<Canceller>> {
     let canceller = Arc::new(Canceller::new());
     let for_handler = canceller.clone();
