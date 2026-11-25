@@ -96,6 +96,11 @@ impl FfmpegCommand {
         self
     }
 
+    /// 暴露可变命令引用，供已有 `apply(&mut Command)` 风格的编码参数追加。
+    pub fn as_command_mut(&mut self) -> &mut Command {
+        &mut self.command
+    }
+
     /// 取出组装好的命令。
     pub fn build(self) -> Command {
         self.command

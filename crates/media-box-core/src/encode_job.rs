@@ -1,6 +1,7 @@
 //! 正式编码：组装 ffmpeg 命令、解析进度并执行。
 
 use crate::encoder::{Av1EncodeArgs, BitrateReduceSettings};
+use crate::ffmpeg_args::FfmpegCommand;
 use crate::interrupter::Canceller;
 use crate::process::{self, Stream};
 use crate::progress::{
@@ -22,29 +23,82 @@ pub fn build_command(
     args: Av1EncodeArgs,
     settings: BitrateReduceSettings,
 ) -> Command {
-    let mut command = Command::new("ffmpeg");
-    command
-        .args([
-            "-hide_banner",
-            "-v",
-            "error",
-            "-progress",
-            "pipe:1",
-            "-dn",
-            "-sn",
-            "-i",
-        ])
-        .arg(input);
+    let mut builder = FfmpegCommand::new()
+        .quiet()
+        .raw(&["-progress", "pipe:1"])
+        .no_data_subtitle()
+        .input(input);
 
-    args.apply(&mut command);
-    command.args(["-c:a", "copy"]);
+    args.apply(builder.as_command_mut());
+    let builder = builder.raw(&["-c:a", "copy"]);
 
-    if let Some(filter) = settings.video_filter() {
-        command.arg("-vf").arg(filter);
+    let builder = match settings.video_filter() {
+        Some(filter) => builder.video_filter(&filter),
+        None => builder,
+    };
+
+    builder.raw(&["-y", &output.to_string_lossy()]).build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::encoder::{BitrateReduceSettings, FrameRateReduce, ResolutionDownScaling};
+    use crate::resolution::Resolution;
+    use crate::value::{ConstantRateFactor, EncoderPreset, FilmGrain, FrameRatePerSecond};
+
+    #[test]
+    fn command_keeps_progress_and_filter_order() {
+        let settings = BitrateReduceSettings::new(
+            ResolutionDownScaling::new(Some(Resolution::Fhd), Resolution::Uhd),
+            FrameRateReduce::new(
+                Some(FrameRatePerSecond::new(30.0).unwrap()),
+                FrameRatePerSecond::new(60.0).unwrap(),
+            ),
+        );
+        let args = Av1EncodeArgs::new(
+            EncoderPreset::new(6).unwrap(),
+            ConstantRateFactor::new(28.0).unwrap(),
+            FilmGrain::new(5).unwrap(),
+        );
+        let command = build_command(Path::new("in.mkv"), Path::new("out.mp4"), args, settings);
+        let got: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            got,
+            [
+                "-hide_banner",
+                "-v",
+                "error",
+                "-progress",
+                "pipe:1",
+                "-dn",
+                "-sn",
+                "-i",
+                "in.mkv",
+                "-c:v",
+                "libsvtav1",
+                "-preset",
+                "6",
+                "-crf",
+                "28",
+                "-flags",
+                "-cgop",
+                "-pix_fmt",
+                "yuv420p10le",
+                "-svtav1-params",
+                "tune=5:keyint=-1:qp-scale-compress-strength=1:film-grain=5",
+                "-c:a",
+                "copy",
+                "-vf",
+                "fps=30,scale=1920:1080:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos",
+                "-y",
+                "out.mp4",
+            ]
+        );
     }
-
-    command.arg("-y").arg(output);
-    command
 }
 
 /// 执行编码并解析进度；失败或取消时删除半成品输出，成功返回输出字节数。
