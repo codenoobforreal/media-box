@@ -1,7 +1,7 @@
 //! image-convert 的命令行定义：参数表、解析与校验。
 
 use crate::convert::ConvertOptions;
-use crate::format::TargetFormat;
+use crate::format::{TargetFormat, image_extensions};
 use crate::metadata::MetadataMode;
 use clap::{Arg, ArgAction, Command, command, value_parser};
 use media_box_core::value::Quality;
@@ -93,7 +93,10 @@ pub fn command() -> Command {
                 .short('f')
                 .long("format")
                 .value_name("FORMAT")
-                .help("目标格式：png/jpg/jpeg/gif/webp/bmp，用 --list-formats 查看完整清单")
+                .help(format!(
+                    "目标格式：{}，用 --list-formats 查看完整清单",
+                    image_extensions().join("/")
+                ))
                 .value_parser(value_parser!(TargetFormat)),
         )
         .arg(
@@ -288,6 +291,15 @@ mod tests {
         let args = parse_from(&["image-convert", "-i", "a.png", "-i", "b.png", "-f", "jpg"]);
         assert_eq!(args.inputs.len(), 2);
         assert!(args.validate().is_ok());
+    }
+
+    #[test]
+    fn format_help_lists_every_supported_extension() {
+        // 帮助文案由格式表派生：新增格式却漏了文案会在此失败。
+        let help = command().render_help().to_string();
+        for extension in image_extensions() {
+            assert!(help.contains(extension), "帮助缺少 {extension}：{help}");
+        }
     }
 
     #[test]
