@@ -11,6 +11,7 @@ use crate::stats::f64_median;
 use crate::value::{ConstantRateFactor, EncoderPreset, FilmGrain};
 use crate::vmaf::{self, VmafMeasureMode};
 use anyhow::{Result, bail};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -105,6 +106,40 @@ fn build_vmaf_command(
         .build()
 }
 
+/// 搜索期编码样本缓存。
+///
+/// 同一 `(crf, 样本序号)` 的编码产物与测量口径无关：同规格和全规格只是
+/// VMAF 滤镜图不同，编码命令完全一致。缓存让第二次口径跳过编码。
+#[derive(Debug, Default)]
+struct SampleCache {
+    paths: HashMap<(ConstantRateFactor, usize), PathBuf>,
+}
+
+impl SampleCache {
+    /// 查缓存；命中返回 true，调用方应直接复用 `path()` 指向的文件。
+    fn contains(&self, crf: ConstantRateFactor, index: usize) -> bool {
+        self.paths.contains_key(&(crf, index))
+    }
+
+    /// 记住一个已成功编码的样本路径。
+    fn insert(&mut self, crf: ConstantRateFactor, index: usize, path: PathBuf) {
+        self.paths.insert((crf, index), path);
+    }
+
+    /// 已缓存样本的路径。
+    fn path(&self, crf: ConstantRateFactor, index: usize) -> &Path {
+        &self.paths[&(crf, index)]
+    }
+}
+
+impl Drop for SampleCache {
+    fn drop(&mut self) {
+        for path in self.paths.values() {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 /// 采样测分器：把每个场景样本编码后用 libvmaf 测分，实现 `SampleMeasurer`。
 #[derive(Debug)]
 pub struct SampleProbe<'a> {
@@ -112,6 +147,8 @@ pub struct SampleProbe<'a> {
     filters: [String; 2],
     sample_filter: Option<String>,
     temp_extension: String,
+    /// 搜索期缓存；随 probe 一起 drop 时批量清理。
+    cache: SampleCache,
 }
 
 impl<'a> SampleProbe<'a> {
@@ -140,6 +177,7 @@ impl<'a> SampleProbe<'a> {
             ],
             sample_filter,
             temp_extension,
+            cache: SampleCache::default(),
             context,
         }
     }
@@ -167,7 +205,11 @@ impl<'a> SampleProbe<'a> {
     }
 
     /// 所有样本 VMAF 的中位数；单样本失败只跳过，不中断整轮搜索。
-    fn median_vmaf(&self, crf: ConstantRateFactor, mode: VmafMeasureMode) -> Result<Option<f64>> {
+    fn median_vmaf(
+        &mut self,
+        crf: ConstantRateFactor,
+        mode: VmafMeasureMode,
+    ) -> Result<Option<f64>> {
         let total = self.context.samples.len();
         let mut scores = Vec::with_capacity(total);
 
@@ -175,27 +217,34 @@ impl<'a> SampleProbe<'a> {
             self.context.canceller.check()?;
 
             let position_seconds = sample.start().as_secs();
-            let distorted = TempSampleFile::new(self.temp_output_path(crf, index));
 
-            self.context.reporter.stage_detail(
-                Stage::CrfSearch,
-                format!(
-                    "CRF {:.2} · 样本 {}/{total} · 编码",
-                    crf.as_f64(),
-                    index + 1
-                ),
-            );
+            if !self.cache.contains(crf, index) {
+                let path = self.temp_output_path(crf, index);
+                self.context.reporter.stage_detail(
+                    Stage::CrfSearch,
+                    format!(
+                        "CRF {:.2} · 样本 {}/{total} · 编码",
+                        crf.as_f64(),
+                        index + 1
+                    ),
+                );
 
-            if let Err(error) = self.encode_sample(crf, sample, distorted.path()) {
-                if Cancelled::is_in(&error) {
-                    return Err(error);
+                if let Err(error) = self.encode_sample(crf, sample, &path) {
+                    if Cancelled::is_in(&error) {
+                        return Err(error);
+                    }
+
+                    self.context.reporter.warning(format!(
+                        "样本编码失败（{position_seconds}s），已跳过：{error:#}"
+                    ));
+                    continue;
                 }
 
-                self.context.reporter.warning(format!(
-                    "样本编码失败（{position_seconds}s），已跳过：{error:#}"
-                ));
-                continue;
+                // 只登记编码成功的样本：失败的半成品不能喂给下一口径。
+                self.cache.insert(crf, index, path);
             }
+
+            let distorted = self.cache.path(crf, index);
 
             self.context.reporter.stage_detail(
                 Stage::CrfSearch,
@@ -206,7 +255,7 @@ impl<'a> SampleProbe<'a> {
                 ),
             );
 
-            match self.measure_vmaf(sample, distorted.path(), mode) {
+            match self.measure_vmaf(sample, distorted, mode) {
                 Ok(Some(score)) => scores.push(score),
                 Ok(None) => self
                     .context
@@ -324,31 +373,66 @@ impl SearchJournal for Journal<'_> {
     }
 }
 
-/// 搜索过程中编码出的临时样本文件，Drop 时删除。
-struct TempSampleFile {
-    path: PathBuf,
-}
-
-impl TempSampleFile {
-    fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempSampleFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn cache_reuses_the_same_crf_and_sample_across_modes() {
+        let mut cache = SampleCache::default();
+        let crf = ConstantRateFactor::new(20.0).unwrap();
+        let path = PathBuf::from("sample_c20_s1.mp4");
+
+        assert!(!cache.contains(crf, 0), "首次测量不应命中缓存");
+        cache.insert(crf, 0, path.clone());
+
+        // 同规格测完后切全规格：同一 (crf, index) 必须命中，且不改路径。
+        assert!(cache.contains(crf, 0), "第二个口径应命中缓存");
+        assert_eq!(cache.path(crf, 0), path);
+    }
+
+    #[test]
+    fn cache_distinguishes_crf_and_sample_index() {
+        let mut cache = SampleCache::default();
+        let low = ConstantRateFactor::new(20.0).unwrap();
+        let high = ConstantRateFactor::new(50.0).unwrap();
+        cache.insert(low, 0, PathBuf::from("a.mp4"));
+
+        assert!(!cache.contains(low, 1), "不同样本不能复用");
+        assert!(!cache.contains(high, 0), "不同 CRF 不能复用");
+
+        // 搜索回头重测端点时应命中原条目。
+        cache.insert(low, 1, PathBuf::from("b.mp4"));
+        cache.insert(high, 0, PathBuf::from("c.mp4"));
+        assert_eq!(cache.path(low, 0), PathBuf::from("a.mp4"));
+    }
+
+    #[test]
+    fn cache_drop_removes_all_cached_files() {
+        // 副作用收敛在项目内：用 crate 根下的临时目录，不写系统临时目录。
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(".tmp-tests")
+            .join(format!("sample-cache-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let crf = ConstantRateFactor::new(20.0).unwrap();
+        let first = dir.join("a.mp4");
+        let second = dir.join("b.mp4");
+        fs::write(&first, b"x").unwrap();
+        fs::write(&second, b"y").unwrap();
+
+        {
+            let mut cache = SampleCache::default();
+            cache.insert(crf, 0, first.clone());
+            cache.insert(crf, 1, second.clone());
+        }
+
+        assert!(!first.exists(), "drop 应删除缓存文件");
+        assert!(!second.exists(), "drop 应删除全部缓存文件");
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn vmaf_command_composes_grain_in_both_inputs() {

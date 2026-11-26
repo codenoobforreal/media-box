@@ -64,7 +64,7 @@ fn ensure_range(value: f64, min: f64, max: f64, what: &'static str) -> Result<()
 }
 
 /// CRF 值，内部以 0.25 为一格存储。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConstantRateFactor(u16);
 
 impl ConstantRateFactor {
