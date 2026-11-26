@@ -111,7 +111,6 @@ pub struct SampleProbe<'a> {
     context: ProbeContext<'a>,
     filters: [String; 2],
     sample_filter: Option<String>,
-    temp_stem: String,
     temp_extension: String,
 }
 
@@ -119,12 +118,6 @@ impl<'a> SampleProbe<'a> {
     /// 由上下文构造测分器，预生成同规格 / 全规格两套滤镜图。
     pub fn new(context: ProbeContext<'a>) -> Self {
         let settings = context.settings;
-        let temp_stem = context
-            .base_output
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("distorted")
-            .to_owned();
         let temp_extension = context
             .base_output
             .extension()
@@ -146,7 +139,6 @@ impl<'a> SampleProbe<'a> {
                 vmaf::filter_graph(VmafMeasureMode::FullSpec, spec),
             ],
             sample_filter,
-            temp_stem,
             temp_extension,
             context,
         }
@@ -160,9 +152,9 @@ impl<'a> SampleProbe<'a> {
     }
 
     fn temp_output_path(&self, crf: ConstantRateFactor, index: usize) -> PathBuf {
+        // 样本名不带源 stem：源文件名再长也不会挤占临时文件名的长度预算。
         let name = format!(
-            "{stem}_p{pid}_s{sample}c{crf:.2}.{extension}",
-            stem = self.temp_stem,
+            "sample_p{pid}_s{sample}c{crf:.2}.{extension}",
             pid = std::process::id(),
             sample = index + 1,
             crf = crf.as_f64(),

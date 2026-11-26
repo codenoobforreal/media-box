@@ -127,8 +127,13 @@ fn max_path_units(path: &Path) -> usize {
             Prefix::Verbatim(_) | Prefix::VerbatimDisk(_) | Prefix::VerbatimUNC(..)
         )
     );
-    // 260 含终止 null；扩展长度路径 32767 也含终止 null，各留一位。
-    if verbatim { 32_766 } else { 259 }
+    // Rust std 在 Windows 上会自动给绝对路径加 `\\?\`（1.58 起），因此只有
+    // 相对路径仍受 MAX_PATH 260 限制；260 与 32767 都含终止 null，各留一位。
+    if verbatim || path.is_absolute() {
+        32_766
+    } else {
+        259
+    }
 }
 
 #[cfg(target_os = "macos")]
