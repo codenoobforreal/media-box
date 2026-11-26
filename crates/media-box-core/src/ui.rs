@@ -12,6 +12,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::display_width::truncate_to_width;
 use crate::format::format_duration_fixed;
 use crate::progress::ProgressSnapshot;
 use crate::report::{Event, Reporter, Stage, SuccessReport};
@@ -225,7 +226,10 @@ impl RenderContext {
             "media-box  {}/{}  {}",
             self.done(),
             self.total,
-            self.current_name()
+            truncate_to_width(
+                &self.current_name(),
+                usize::from(rule_width()).saturating_sub(20)
+            )
         );
 
         styled(writer, Color::Cyan, true, &header);
@@ -320,7 +324,8 @@ impl RenderContext {
             styled(writer, Color::Green, true, "=== 成功 ===");
 
             for report in &self.success_reports {
-                let _ = writeln!(writer, "{report}");
+                let text = truncate_to_width(&report.to_string(), usize::from(rule_width()));
+                let _ = writeln!(writer, "{text}");
             }
 
             let _ = writeln!(writer);
@@ -330,7 +335,12 @@ impl RenderContext {
             styled(writer, Color::Red, true, "=== 失败 ===");
 
             for (path, error) in &self.failures {
-                let _ = writeln!(writer, "{}: {error}", path.display());
+                let text = format!("{}: {error}", path.display());
+                let _ = writeln!(
+                    writer,
+                    "{}",
+                    truncate_to_width(&text, usize::from(rule_width()))
+                );
             }
 
             let _ = writeln!(writer);
@@ -350,7 +360,11 @@ impl RenderContext {
             styled(writer, Color::DarkGrey, true, "=== 已取消/未处理 ===");
 
             for path in &self.queue {
-                let _ = writeln!(writer, "{}", path.display());
+                let _ = writeln!(
+                    writer,
+                    "{}",
+                    truncate_to_width(&path.display().to_string(), usize::from(rule_width()))
+                );
             }
         }
     }

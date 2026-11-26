@@ -17,6 +17,7 @@ const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 /// 文件名预算错误。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum PathBudgetError {
     /// 预留后缀后已无空间容纳截断哈希。
     #[error("文件名预算不足：后缀需占 {reserved} 个码元，无法在 {max} 个码元内保留哈希")]
@@ -52,7 +53,10 @@ pub enum PathBudgetError {
 ///
 /// 未超预算时原样返回；超预算时保留前 `255 - reserved - 17` 个码元，
 /// 再追加 FNV-1a 哈希，保证不同长名不会因截断而互相覆盖。
-#[must_use]
+///
+/// # Errors
+///
+/// 预留空间不足以容纳哈希后缀时返回 `BudgetTooSmall`。
 pub fn safe_output_stem(stem: &str, reserved: usize) -> Result<String, PathBudgetError> {
     let budget =
         MAX_COMPONENT_UTF16
@@ -77,6 +81,10 @@ pub fn safe_output_stem(stem: &str, reserved: usize) -> Result<String, PathBudge
 }
 
 /// 校验路径的每个组件与整路径长度是否落在平台预算内。
+///
+/// # Errors
+///
+/// 组件超过 255 码元或整路径超过平台预算时返回对应错误。
 pub fn validate_output_path(path: &Path) -> Result<(), PathBudgetError> {
     for component in path.components() {
         let text = component.as_os_str();

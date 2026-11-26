@@ -1,7 +1,15 @@
 //! 逐文件转换结果与批量汇总的文本输出。
 
 use crate::convert::ConvertOutcome;
+use media_box_core::display_width::truncate_to_width;
 use std::io::{self, Write};
+
+/// 单行最大显示宽度，超出时用省略号收尾，保持表格不折行。
+const LINE_WIDTH: usize = 120;
+
+fn print_line(writer: &mut impl Write, text: &str) -> io::Result<()> {
+    writeln!(writer, "{}", truncate_to_width(text, LINE_WIDTH))
+}
 
 /// 批量转换的汇总统计。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -51,32 +59,41 @@ pub(crate) fn report(outcomes: &[ConvertOutcome], writer: &mut impl Write) -> io
     for outcome in outcomes {
         match outcome {
             ConvertOutcome::Success { bytes, .. } => {
-                writeln!(
+                print_line(
                     writer,
-                    "成功 {} -> {}（{} 字节）",
-                    outcome.source().display(),
-                    outcome.target().display(),
-                    bytes
+                    &format!(
+                        "成功 {} -> {}（{} 字节）",
+                        outcome.source().display(),
+                        outcome.target().display(),
+                        bytes
+                    ),
                 )?;
             }
             ConvertOutcome::Skipped { .. } => {
-                writeln!(
+                print_line(
                     writer,
-                    "跳过 {}（已存在 {}）",
-                    outcome.source().display(),
-                    outcome.target().display()
+                    &format!(
+                        "跳过 {}（已存在 {}）",
+                        outcome.source().display(),
+                        outcome.target().display()
+                    ),
                 )?;
             }
             ConvertOutcome::Planned { .. } => {
-                writeln!(
+                print_line(
                     writer,
-                    "计划 {} -> {}",
-                    outcome.source().display(),
-                    outcome.target().display()
+                    &format!(
+                        "计划 {} -> {}",
+                        outcome.source().display(),
+                        outcome.target().display()
+                    ),
                 )?;
             }
             ConvertOutcome::Failed { error, .. } => {
-                writeln!(writer, "失败 {}：{}", outcome.source().display(), error)?;
+                print_line(
+                    writer,
+                    &format!("失败 {}：{}", outcome.source().display(), error),
+                )?;
             }
         }
     }

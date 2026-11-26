@@ -1,5 +1,6 @@
 //! 子进程输出读取：按流分发行、限制缓冲，带取消轮询。
 
+use crate::display_width::truncate_to_width;
 use crate::interrupter::{Cancelled, Canceller};
 use anyhow::{Context, Result};
 use std::io::{BufReader, Read};
@@ -16,6 +17,9 @@ const MAX_STDERR_LINES: usize = 200;
 
 /// 单行字节上限；超长行被截断，避免 `read_until` 让缓冲无限增长。
 const MAX_LINE_BYTES: usize = 64 * 1024;
+
+/// 展示命令的最大宽度，避免汇总区因超长路径刷屏。
+const MAX_DISPLAY_COMMAND_WIDTH: usize = 240;
 
 /// 子进程输出的流。
 #[expect(
@@ -103,10 +107,11 @@ pub fn display_command(command: &Command) -> String {
         }
     }
 
-    std::iter::once(quote(command.get_program()))
+    let text = std::iter::once(quote(command.get_program()))
         .chain(command.get_args().map(quote))
         .collect::<Vec<String>>()
-        .join(" ")
+        .join(" ");
+    truncate_to_width(&text, MAX_DISPLAY_COMMAND_WIDTH)
 }
 
 /// 执行命令，逐行回调输出；检测到取消时杀掉子进程并返回 [`Cancelled`]。
@@ -307,5 +312,17 @@ mod tests {
             display_command(&command),
             "ffmpeg -i \"my video.mkv\" -f null -"
         );
+    }
+
+    #[test]
+    fn display_command_truncates_long_paths() {
+        let mut command = Command::new("ffmpeg");
+        command.args(["-i", &"a".repeat(300), "-f", "null", "-"]);
+        let shown = display_command(&command);
+        assert!(
+            crate::display_width::display_width(&shown) <= MAX_DISPLAY_COMMAND_WIDTH,
+            "展示命令不应超过 {MAX_DISPLAY_COMMAND_WIDTH} 列"
+        );
+        assert!(shown.ends_with('…'));
     }
 }

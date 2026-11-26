@@ -5,6 +5,7 @@ pub mod byte_size;
 pub mod compressor;
 pub mod crf_probe;
 pub mod crf_search;
+pub mod display_width;
 pub mod encode_job;
 pub mod encoder;
 pub(crate) mod ffmpeg_args;
