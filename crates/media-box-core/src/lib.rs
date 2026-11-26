@@ -13,6 +13,7 @@ pub mod format;
 pub mod interrupter;
 pub mod media_scan;
 pub mod output_path;
+pub mod path_budget;
 pub mod probe;
 pub mod process;
 pub mod progress;
